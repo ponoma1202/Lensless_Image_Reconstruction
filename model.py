@@ -1,37 +1,61 @@
 import torch
 from torch import nn
+import math
 
+# based on https://github.com/brandokoch/attention-is-all-you-need-paper/tree/master and pytorch tutorial
+
+# TODO: look up xavier initialization for weights
+
+# Transformer model
 class Transformer(nn.Module):
-    def __init__(self, in_dim, out_dim, d_model=512, d_ffn=2048, dropout_rate=0.1):
+    def __init__(self, in_dim, out_dim, n_blocks=6, d_model=512, d_ffn=2048, dropout_rate=0.1):
         super().__init__()
-        self.encoder_decoder = Encoder_Decoder(in_dim, out_dim, d_model, d_ffn, dropout_rate)
-    
-    def forward(self, x):
-        return self.encoder_decoder(x)
-
-class Encoder_Decoder(nn.Module):
-    def __init__(self, in_dim, out_dim, d_model, d_ffn, dropout_rate):
-        super().__init__()
+        self.d_model = d_model
         self.in_embedding = nn.Embedding(in_dim, d_model)               # input embedding layer
-        # TODO: outputs are shifted right in the paper????
         self.out_embedding = nn.Embedding(out_dim, d_model)             # output embedding layer
         self.in_positional_encoding = Positional_Encoding(d_model)      # input positional encoding for encoder
         self.out_positional_encoding = Positional_Encoding(d_model)     # output positional encoding for decoder
-        self.encoder = Encoder(d_model, d_ffn, dropout_rate)
-        self.decoder = Decoder(d_model, d_ffn, dropout_rate)
-
+        
+        self.encoder = Encoder_Block(d_model, d_ffn, n_blocks)
+        self.decoder = Decoder_Block(d_model, d_ffn, n_blocks)
+    
+    # TODO: maybe make it so that masks are passed in so they could be modified (not necessary for now)
     def forward(self, x):
-        encoder_in = self.in_embedding(x)
+        encoder_in = self.in_embedding(x) * math.sqrt(self.d_model)               # multiply embeddings by sqrt(d_model) as in paper
         encoder_in = self.in_positional_encoding(encoder_in)
         encoder_output = self.encoder(encoder_in)
 
-        decoder_in = self.out_embedding(x)
+        decoder_in = self.out_embedding(x) * math.sqrt(self.d_model)
         decoder_in = self.out_positional_encoding(decoder_in)
         decoder_output = self.decoder(encoder_output, decoder_in)
         return decoder_output
 
+# list of all encoder blocks
 class Encoder(nn.Module):
-    def __init__(self, d_model, d_ffn, dropout_rate):
+    def __init__(self, d_model, d_ffn, n_blocks, dropout_rate=0.1):
+        super().__init__()
+
+        self.encoder_layers = nn.ModuleList([Encoder_Block(d_model, d_ffn) for _ in range(n_blocks)])
+
+    def forward(self, x):
+        for encoder_layer in self.encoder_layers:
+            x = encoder_layer(x)                                    # call on individual encoder block one at a time.
+        return x
+    
+class Decoder(nn.Module):
+    def __init__(self, d_model, d_ffn, n_blocks, dropout_rate=0.1):
+        super().__init__()
+
+        self.decoder_layers = nn.ModuleList(Decoder_Block(d_model, d_ffn) for _ in range(n_blocks))
+
+    def forward(self, encoder_output, x):
+        for decoder_layer in self.decoder_layers:
+            x = decoder_layer(encoder_output, x)                        # TODO: question: how does moduleList abstract/know that the encoder_outputs need to be passed in sequentially?                       
+        return x
+
+# list of all decoder blocks
+class Encoder_Block(nn.Module):
+    def __init__(self, d_model, d_ffn, dropout_rate=0.1):
         super().__init__()
         d_model = d_model
         d_ffn = d_ffn                                    # feed forward network layer ~ 4 times the size of d_model
@@ -61,8 +85,8 @@ class Encoder(nn.Module):
         ffn = self.add_and_norm2(x, ffn)
         return ffn
 
-class Decoder(nn.Module):
-    def __init__(self, d_model, d_ffn, dropout_rate):
+class Decoder_Block(nn.Module):
+    def __init__(self, d_model, d_ffn, dropout_rate=0.1):
         super().__init__()
         d_model = d_model
         d_ffn = d_ffn                                       # feed forward network layer ~ 4 times the size of d_model
@@ -116,13 +140,28 @@ class Decoder(nn.Module):
 # Helper classes
 # TODO implement multiheaded attention
 
+# taken from https://pytorch.org/tutorials/beginner/transformer_tutorial.html#:~:text=class%20PositionalEncoding(nn.Module)%3A 
 class Positional_Encoding(nn.Module):                    
-    def __init__(self, d_model):
+    def __init__(self, d_model, dropout_rate=0.1, max_len=5000):
         super().__init__()
         self.d_model = d_model
+        self.dropout = nn.Dropout(dropout_rate)
+        self.pos_encoding = torch.zeros(1, max_len, d_model)                       # each "word" has encoding of size d_model
+
+        # calculate e^(2i * log(n)/d_model) where n = 10000 from original paper and i goes from 0 to d_model/2 because there are d_model PAIRS
+        div_term = torch.exp(torch.arange(0, d_model, 2) * -(math.log(torch.tensor(10000.0)) / d_model))  
+
+        # create (max_len, 1) column tensor for all positions (numbered)
+        pos = torch.arange(0, max_len).unsqueeze(1)
+
+        # broadcast and set even indices to sin  and odd iniices to cos
+        self.pos_encoding[0, :, 0::2] = torch.sin(pos * div_term)                  # select all rows. Start at column 0 and skip every 2 cols
+        self.pos_encoding[0, :, 1::2] = torch.cos(pos * div_term)                  
 
     def forward(self, x):
-        return 
+        x = x + self.pos_encoding[:, :x.size(0)]                                   # trim down pos_encoding to size of actual input sequence. dim = (1, seq_len, d_model)
+        x = self.dropout(x)                          
+        return x
 
 class Position_wise_ffn(nn.Module):                           # 2 fully connected dense layers  https://medium.com/@hunter-j-phillips/position-wise-feed-forward-network-ffn-d4cc9e997b4c 
     def __init__(self, d_model, d_ffn):                       # feed forward just means no recurrent relations
@@ -137,6 +176,7 @@ class Position_wise_ffn(nn.Module):                           # 2 fully connecte
         return x
 
 
+# TODO: what if padding is not 0?
 class Self_Attention(nn.Module):            # q and k have dimensions d_v by d_k
     def __init__(self):
         super().__init__()        
@@ -144,8 +184,6 @@ class Self_Attention(nn.Module):            # q and k have dimensions d_v by d_k
     def forward(self, q, k, v,is_masked=False):
         d_k = q.size(-1)                                                                                    # get last dimension of q (should be d_k)
         attention_weights = torch.matmul(q, k.transpose(-2, -1)) / torch.sqrt(d_k)                          # want last two dimensions to get swapped
-        
-        # TODO: what if padding is not 0?
         
         # source/padding mask
         mask = attention_weights.masked_fill(attention_weights == 0, -1e9)                                  # make sure padding values are not considered in softmax by setting them to negative infinity
