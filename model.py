@@ -11,31 +11,34 @@ class Transformer(nn.Module):
     def __init__(self, in_dim, out_dim, n_blocks=6, d_model=512, d_ffn=2048, dropout_rate=0.1):
         super().__init__()
         self.d_model = d_model
+        self.flatten = nn.Flatten()                              # flatten the input sequence since we are dealing with images
         self.in_embedding = nn.Embedding(in_dim, d_model)               # input embedding layer
         self.out_embedding = nn.Embedding(out_dim, d_model)             # output embedding layer
         self.in_positional_encoding = Positional_Encoding(d_model)      # input positional encoding for encoder
         self.out_positional_encoding = Positional_Encoding(d_model)     # output positional encoding for decoder
         
-        self.encoder = Encoder_Block(d_model, d_ffn, n_blocks)
-        self.decoder = Decoder_Block(d_model, d_ffn, n_blocks)
+        self.encoder = Encoder(d_model, d_ffn, n_blocks, dropout_rate)
+        self.decoder = Decoder(d_model, d_ffn, n_blocks, dropout_rate)
     
     # TODO: maybe make it so that masks are passed in so they could be modified (not necessary for now)
-    def forward(self, x):
+    def forward(self, x, target):
+        x = self.flatten(x).type(torch.LongTensor)
+        target = target.unsqueeze(1)    
         encoder_in = self.in_embedding(x) * math.sqrt(self.d_model)               # multiply embeddings by sqrt(d_model) as in paper
         encoder_in = self.in_positional_encoding(encoder_in)
         encoder_output = self.encoder(encoder_in)
 
-        decoder_in = self.out_embedding(x) * math.sqrt(self.d_model)
+        decoder_in = self.out_embedding(target) * math.sqrt(self.d_model)           # decoder embeds target sequence
         decoder_in = self.out_positional_encoding(decoder_in)
         decoder_output = self.decoder(encoder_output, decoder_in)
         return decoder_output
 
 # list of all encoder blocks
 class Encoder(nn.Module):
-    def __init__(self, d_model, d_ffn, n_blocks, dropout_rate=0.1):
+    def __init__(self, d_model, d_ffn, n_blocks, dropout_rate):
         super().__init__()
 
-        self.encoder_layers = nn.ModuleList([Encoder_Block(d_model, d_ffn) for _ in range(n_blocks)])
+        self.encoder_layers = nn.ModuleList([Encoder_Block(d_model, d_ffn, dropout_rate) for _ in range(n_blocks)])
 
     def forward(self, x):
         for encoder_layer in self.encoder_layers:
@@ -43,10 +46,10 @@ class Encoder(nn.Module):
         return x
     
 class Decoder(nn.Module):
-    def __init__(self, d_model, d_ffn, n_blocks, dropout_rate=0.1):
+    def __init__(self, d_model, d_ffn, n_blocks, dropout_rate):
         super().__init__()
 
-        self.decoder_layers = nn.ModuleList(Decoder_Block(d_model, d_ffn) for _ in range(n_blocks))
+        self.decoder_layers = nn.ModuleList(Decoder_Block(d_model, d_ffn, dropout_rate) for _ in range(n_blocks))
 
     def forward(self, encoder_output, x):
         for decoder_layer in self.decoder_layers:
@@ -55,7 +58,7 @@ class Decoder(nn.Module):
 
 # list of all decoder blocks
 class Encoder_Block(nn.Module):
-    def __init__(self, d_model, d_ffn, dropout_rate=0.1):
+    def __init__(self, d_model, d_ffn, dropout_rate):
         super().__init__()
         d_model = d_model
         d_ffn = d_ffn                                    # feed forward network layer ~ 4 times the size of d_model
@@ -86,7 +89,7 @@ class Encoder_Block(nn.Module):
         return ffn
 
 class Decoder_Block(nn.Module):
-    def __init__(self, d_model, d_ffn, dropout_rate=0.1):
+    def __init__(self, d_model, d_ffn, dropout_rate):
         super().__init__()
         d_model = d_model
         d_ffn = d_ffn                                       # feed forward network layer ~ 4 times the size of d_model
@@ -154,12 +157,12 @@ class Positional_Encoding(nn.Module):
         # create (max_len, 1) column tensor for all positions (numbered)
         pos = torch.arange(0, max_len).unsqueeze(1)
 
-        # broadcast and set even indices to sin  and odd iniices to cos
+        # broadcast and set even indices to sin  and odd indices to cos
         self.pos_encoding[0, :, 0::2] = torch.sin(pos * div_term)                  # select all rows. Start at column 0 and skip every 2 cols
         self.pos_encoding[0, :, 1::2] = torch.cos(pos * div_term)                  
 
     def forward(self, x):
-        x = x + self.pos_encoding[:, :x.size(0)]                                   # trim down pos_encoding to size of actual input sequence. dim = (1, seq_len, d_model)
+        x = x + self.pos_encoding[:, :x.size(1)]                                   # trim down pos_encoding to size of actual input sequence. dim = (1, seq_len, d_model)
         x = self.dropout(x)                          
         return x
 
@@ -183,7 +186,7 @@ class Self_Attention(nn.Module):            # q and k have dimensions d_v by d_k
 
     def forward(self, q, k, v,is_masked=False):
         d_k = q.size(-1)                                                                                    # get last dimension of q (should be d_k)
-        attention_weights = torch.matmul(q, k.transpose(-2, -1)) / torch.sqrt(d_k)                          # want last two dimensions to get swapped
+        attention_weights = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(d_k)                          # want last two dimensions to get swapped
         
         # source/padding mask
         mask = attention_weights.masked_fill(attention_weights == 0, -1e9)                                  # make sure padding values are not considered in softmax by setting them to negative infinity
