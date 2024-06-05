@@ -48,11 +48,11 @@ def train(model, trainloader, optimizer, criterion, num_epochs, device):
         for step, batch in enumerate(trainloader):
             input, target = batch
             input, target = input.to(device), target.to(device)
-            output = model(input, target)                                                       # result is a (num_classes, batch_size) tensor
+            output = model(input, target)                                                    # result is a (num_classes, batch_size) tensor
             optimizer.zero_grad()
-            loss = criterion(output, target)                                            # take argmax to get the class with the highest "probability"
+            loss = criterion(output.squeeze(), target)                                            # take argmax to get the class with the highest "probability"
             loss.backward()
-            optimizer.step()
+            optimizer.step() 
             pred = output.argmax(dim=1)
             total_correct += (pred == target).sum().item()                              # sum for list is a list so need to use .item()
         print(f'Epoch {epoch+1}/{num_epochs}, Loss: {loss.item()}, Accuracy: {total_correct/len(trainloader.dataset)}')

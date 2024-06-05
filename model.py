@@ -16,22 +16,28 @@ class Transformer(nn.Module):
         self.out_embedding = nn.Embedding(out_dim, d_model)             # output embedding layer
         self.in_positional_encoding = Positional_Encoding(d_model)      # input positional encoding for encoder
         self.out_positional_encoding = Positional_Encoding(d_model)     # output positional encoding for decoder
+
+        self.linear = nn.Linear(d_model, out_dim)                       # linear layer to get output classes
+        self.softmax = nn.Softmax(dim=-1)                               # softmax to get probabilities of each class
         
         self.encoder = Encoder(d_model, d_ffn, n_blocks, dropout_rate)
         self.decoder = Decoder(d_model, d_ffn, n_blocks, dropout_rate)
     
     # TODO: maybe make it so that masks are passed in so they could be modified (not necessary for now)
     def forward(self, x, target):
-        x = self.flatten(x).type(torch.LongTensor)
-        target = target.unsqueeze(1)    
+        x = self.flatten(x).type(torch.LongTensor)                                
         encoder_in = self.in_embedding(x) * math.sqrt(self.d_model)               # multiply embeddings by sqrt(d_model) as in paper
-        encoder_in = self.in_positional_encoding(encoder_in)
+        encoder_in = self.in_positional_encoding(encoder_in)                      # encoder_in is a (batch_size, seq_len, d_model) tensor
         encoder_output = self.encoder(encoder_in)
 
+        target = target.unsqueeze(1)  
         decoder_in = self.out_embedding(target) * math.sqrt(self.d_model)           # decoder embeds target sequence
         decoder_in = self.out_positional_encoding(decoder_in)
         decoder_output = self.decoder(encoder_output, decoder_in)
-        return decoder_output
+
+        # TODO: check why there is an extra dimension in output (4, 1, 10)
+        decoder_output = self.linear(decoder_output)                                                 # do final linear layer to get output to desired number of classes/sequence length
+        return decoder_output                                                                        
 
 # list of all encoder blocks
 class Encoder(nn.Module):
@@ -53,7 +59,7 @@ class Decoder(nn.Module):
 
     def forward(self, encoder_output, x):
         for decoder_layer in self.decoder_layers:
-            x = decoder_layer(encoder_output, x)                        # TODO: question: how does moduleList abstract/know that the encoder_outputs need to be passed in sequentially?                       
+            x = decoder_layer(encoder_output, x)                        # Transformer actually looks like a U-Net and Encoders are processed first, outputs are saved, and passed into respective decoders.                       
         return x
 
 # list of all decoder blocks
@@ -116,12 +122,12 @@ class Decoder_Block(nn.Module):
         self.dropout3 = nn.Dropout(dropout_rate)
         self.add_and_norm3 = Add_and_Norm(d_model)
 
-    def forward(self, encoder_output, x):
-        # masked self-attention
+    def forward(self, encoder_output, x):                   # x = decoder input, which is composed of the target sequence embeddings
+        # masked self-attention 
         Q_1 = self.Wq_1(x)
         K_1 = self.Wk_1(x)
         V_1 = self.Wv_1(x)
-        attention_layer1 = self.attention1(Q_1, K_1, V_1, is_masked=True)
+        attention_layer1 = self.attention1(Q_1, K_1, V_1, is_masked=True)          
         attention_layer1 = self.dropout1(attention_layer1)
         x = self.add_and_norm1(attention_layer1, x)
 
@@ -185,18 +191,19 @@ class Self_Attention(nn.Module):            # q and k have dimensions d_v by d_k
         super().__init__()        
 
     def forward(self, q, k, v,is_masked=False):
-        d_k = q.size(-1)                                                                                    # get last dimension of q (should be d_k)
+        d_k = q.size(-1)                                                                                   # get last dimension of q (should be d_k)
+        padding = 0                                                                             
         attention_weights = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(d_k)                          # want last two dimensions to get swapped
         
-        # source/padding mask
-        mask = attention_weights.masked_fill(attention_weights == 0, -1e9)                                  # make sure padding values are not considered in softmax by setting them to negative infinity
+        # source/padding mask. Safer to make this into a boolean mask rather than rounding so that numbers won't accidentally be rounded to 0
+        mask = attention_weights != padding                                                                 # TODO: might need to add n_head dimension later                             # make sure padding values are not considered in softmax
 
         # target mask (for decoder)
         if is_masked:                       
-            # combine padding and target mask
-            mask = torch.tril(torch.ones(1, attention_weights.size(-1), attention_weights.size(-1))) & mask    # target sequence length for dim = -1 should be the same as dim = -2   
+            # combine padding and target mask. Should have dimensions (target_sequence_len, target_sequence_len)
+            mask = torch.tril(torch.ones(1, attention_weights.size(-1), attention_weights.size(-1))).bool() & mask    # target sequence length for dim = -1 should be the same as dim = -2   
         
-        attention_weights = attention_weights.masked_fill(mask == 0, -1e9)                                  # set all values in upper triangle of matrix to infinity
+        attention_weights = attention_weights.masked_fill(mask == 0, -1e9)                                  # set all values we want to ignore to -infinity
         
         probabilities = torch.softmax(attention_weights, dim=-1)                                            # gets the probabilities along last dimension. For 2d the result of softmax is a (d_v, 1) vector.
         return torch.matmul(probabilities, v)      
