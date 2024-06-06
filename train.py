@@ -2,6 +2,8 @@ import torch
 from model import Transformer
 import torchvision
 from utils import Rescale
+from tqdm import tqdm
+import os
 
 def train():
     print('Training model...')
@@ -36,6 +38,9 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)           # TODO: potentially add learning rate scheduler later and change parameters to paper's params
     criterion = torch.nn.CrossEntropyLoss()
 
+    if not os.path.exists('./checkpoint'):          # TODO: added this for saving purposes - VP
+        os.mkdir('./checkpoint')
+
     train(model, trainloader, optimizer, criterion, num_epochs, device)
     validate(model, testloader, criterion, device)
 
@@ -45,7 +50,7 @@ def train(model, trainloader, optimizer, criterion, num_epochs, device):
     
     for epoch in range(num_epochs):
         total_correct = 0
-        for step, batch in enumerate(trainloader):
+        for step, batch in enumerate(tqdm(trainloader)):
             input, target = batch
             input, target = input.to(device), target.to(device)
             output = model(input, target)                                                    # result is a (num_classes, batch_size) tensor
@@ -53,15 +58,17 @@ def train(model, trainloader, optimizer, criterion, num_epochs, device):
             loss = criterion(output.squeeze(), target)                                            # take argmax to get the class with the highest "probability"
             loss.backward()
             optimizer.step() 
-            pred = output.argmax(dim=1)
+            pred = output.squeeze().argmax(dim=1)                           # output is (batch_size, target seq len, num_classes) so need to squeeze to (batch_size, num_classes) 
             total_correct += (pred == target).sum().item()                              # sum for list is a list so need to use .item()
         print(f'Epoch {epoch+1}/{num_epochs}, Loss: {loss.item()}, Accuracy: {total_correct/len(trainloader.dataset)}')
+    
+    
 
 def validate(model, testloader, criterion, device):
     model.eval()
 
     with torch.no_grad():
-        for step, batch in enumerate(testloader):
+        for step, batch in enumerate(tqdm(testloader)):
             input, target = batch
             input, target = input.to(device), target.to(device)
             output = model(input)

@@ -5,6 +5,8 @@ import math
 # based on https://github.com/brandokoch/attention-is-all-you-need-paper/tree/master and pytorch tutorial
 
 # TODO: look up xavier initialization for weights
+# TODO: implement multiheaded attention
+# TODO: implement patch embedding for image data
 
 # Transformer model
 class Transformer(nn.Module):
@@ -24,6 +26,7 @@ class Transformer(nn.Module):
         self.decoder = Decoder(d_model, d_ffn, n_blocks, dropout_rate)
     
     # TODO: maybe make it so that masks are passed in so they could be modified (not necessary for now)
+
     def forward(self, x, target):
         x = self.flatten(x).type(torch.LongTensor)                                
         encoder_in = self.in_embedding(x) * math.sqrt(self.d_model)               # multiply embeddings by sqrt(d_model) as in paper
@@ -98,7 +101,7 @@ class Decoder_Block(nn.Module):
     def __init__(self, d_model, d_ffn, dropout_rate):
         super().__init__()
         d_model = d_model
-        d_ffn = d_ffn                                       # feed forward network layer ~ 4 times the size of d_model
+        d_ffn = d_ffn                                              # feed forward network layer ~ 4 times the size of d_model
         dropout_rate = dropout_rate
 
         # masked self-attention
@@ -147,7 +150,6 @@ class Decoder_Block(nn.Module):
 
 
 # Helper classes
-# TODO implement multiheaded attention
 
 # taken from https://pytorch.org/tutorials/beginner/transformer_tutorial.html#:~:text=class%20PositionalEncoding(nn.Module)%3A 
 class Positional_Encoding(nn.Module):                    
@@ -190,13 +192,13 @@ class Self_Attention(nn.Module):            # q and k have dimensions d_v by d_k
     def __init__(self):
         super().__init__()        
 
-    def forward(self, q, k, v,is_masked=False):
+    def forward(self, q, k, v,is_masked=False, padding=0):
         d_k = q.size(-1)                                                                                   # get last dimension of q (should be d_k)
-        padding = 0                                                                             
+        padding = padding                                                                            
         attention_weights = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(d_k)                          # want last two dimensions to get swapped
         
         # source/padding mask. Safer to make this into a boolean mask rather than rounding so that numbers won't accidentally be rounded to 0
-        mask = attention_weights != padding                                                                 # TODO: might need to add n_head dimension later                             # make sure padding values are not considered in softmax
+        mask = attention_weights != padding                                                                # make sure padding values are not considered in softmax
 
         # target mask (for decoder)
         if is_masked:                       
