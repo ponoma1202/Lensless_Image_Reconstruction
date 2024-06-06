@@ -10,25 +10,25 @@ import math
 
 # Transformer model
 class Transformer(nn.Module):
-    def __init__(self, in_dim, out_dim, n_blocks=6, d_model=512, d_ffn=2048, dropout_rate=0.1):
+    def __init__(self, in_dim, out_dim, device, n_blocks=6, d_model=512, d_ffn=2048, dropout_rate=0.1):
         super().__init__()
         self.d_model = d_model
         self.flatten = nn.Flatten()                              # flatten the input sequence since we are dealing with images
         self.in_embedding = nn.Embedding(in_dim, d_model)               # input embedding layer
         self.out_embedding = nn.Embedding(out_dim, d_model)             # output embedding layer
-        self.in_positional_encoding = Positional_Encoding(d_model)      # input positional encoding for encoder
-        self.out_positional_encoding = Positional_Encoding(d_model)     # output positional encoding for decoder
+        self.in_positional_encoding = Positional_Encoding(d_model, device)      # input positional encoding for encoder
+        self.out_positional_encoding = Positional_Encoding(d_model, device)     # output positional encoding for decoder
 
         self.linear = nn.Linear(d_model, out_dim)                       # linear layer to get output classes
         self.softmax = nn.Softmax(dim=-1)                               # softmax to get probabilities of each class
         
-        self.encoder = Encoder(d_model, d_ffn, n_blocks, dropout_rate)
-        self.decoder = Decoder(d_model, d_ffn, n_blocks, dropout_rate)
+        self.encoder = Encoder(d_model, d_ffn, n_blocks, dropout_rate, device)                      # Note: when creating new tensors, need to specify device they are created on (go on cpu by default)
+        self.decoder = Decoder(d_model, d_ffn, n_blocks, dropout_rate, device)
     
     # TODO: maybe make it so that masks are passed in so they could be modified (not necessary for now)
 
     def forward(self, x, target):
-        x = self.flatten(x).type(torch.LongTensor)                                
+        x = self.flatten(x).to(dtype=torch.long, device=x.device)                 # converting into another tensor type moves tensor to cpu by default.         
         encoder_in = self.in_embedding(x) * math.sqrt(self.d_model)               # multiply embeddings by sqrt(d_model) as in paper
         encoder_in = self.in_positional_encoding(encoder_in)                      # encoder_in is a (batch_size, seq_len, d_model) tensor
         encoder_output = self.encoder(encoder_in)
@@ -44,10 +44,10 @@ class Transformer(nn.Module):
 
 # list of all encoder blocks
 class Encoder(nn.Module):
-    def __init__(self, d_model, d_ffn, n_blocks, dropout_rate):
+    def __init__(self, d_model, d_ffn, n_blocks, dropout_rate, device):
         super().__init__()
 
-        self.encoder_layers = nn.ModuleList([Encoder_Block(d_model, d_ffn, dropout_rate) for _ in range(n_blocks)])
+        self.encoder_layers = nn.ModuleList([Encoder_Block(d_model, d_ffn, dropout_rate, device) for _ in range(n_blocks)])
 
     def forward(self, x):
         for encoder_layer in self.encoder_layers:
@@ -55,10 +55,10 @@ class Encoder(nn.Module):
         return x
     
 class Decoder(nn.Module):
-    def __init__(self, d_model, d_ffn, n_blocks, dropout_rate):
+    def __init__(self, d_model, d_ffn, n_blocks, dropout_rate, device):
         super().__init__()
 
-        self.decoder_layers = nn.ModuleList(Decoder_Block(d_model, d_ffn, dropout_rate) for _ in range(n_blocks))
+        self.decoder_layers = nn.ModuleList(Decoder_Block(d_model, d_ffn, dropout_rate, device) for _ in range(n_blocks))
 
     def forward(self, encoder_output, x):
         for decoder_layer in self.decoder_layers:
@@ -67,7 +67,7 @@ class Decoder(nn.Module):
 
 # list of all decoder blocks
 class Encoder_Block(nn.Module):
-    def __init__(self, d_model, d_ffn, dropout_rate):
+    def __init__(self, d_model, d_ffn, dropout_rate, device):
         super().__init__()
         d_model = d_model
         d_ffn = d_ffn                                    # feed forward network layer ~ 4 times the size of d_model
@@ -76,7 +76,7 @@ class Encoder_Block(nn.Module):
         self.Wq = nn.Linear(d_model, d_model)                    # paper says it uses dim = 512 for outputs for all embeddings
         self.Wk = nn.Linear(d_model, d_model)                    # if implementing multiheaded attention later, good to have these here to use in both mutltiheaded and self-attention classes
         self.Wv = nn.Linear(d_model, d_model)
-        self.attention = Self_Attention()    
+        self.attention = Self_Attention(device)    
         self.dropout1 = nn.Dropout(dropout_rate)
         self.add_and_norm1 = Add_and_Norm(d_model)     
 
@@ -98,7 +98,7 @@ class Encoder_Block(nn.Module):
         return ffn
 
 class Decoder_Block(nn.Module):
-    def __init__(self, d_model, d_ffn, dropout_rate):
+    def __init__(self, d_model, d_ffn, dropout_rate, device):
         super().__init__()
         d_model = d_model
         d_ffn = d_ffn                                              # feed forward network layer ~ 4 times the size of d_model
@@ -108,7 +108,7 @@ class Decoder_Block(nn.Module):
         self.Wq_1 = nn.Linear(d_model, d_model)                    # paper says it uses dim = 512 for outputs for all embeddings
         self.Wk_1 = nn.Linear(d_model, d_model)                    # if implementing multiheaded attention later, good to have these here to use in both mutltiheaded and self-attention classes
         self.Wv_1 = nn.Linear(d_model, d_model)
-        self.attention1 = Self_Attention()    
+        self.attention1 = Self_Attention(device)    
         self.dropout1 = nn.Dropout(dropout_rate)
         self.add_and_norm1 = Add_and_Norm(d_model)
 
@@ -116,7 +116,7 @@ class Decoder_Block(nn.Module):
         self.Wq_2 = nn.Linear(d_model, d_model)
         self.Wk_2 = nn.Linear(d_model, d_model)
         self.Wv_2 = nn.Linear(d_model, d_model)
-        self.attention2 = Self_Attention()
+        self.attention2 = Self_Attention(device)
         self.dropout2 = nn.Dropout(dropout_rate)
         self.add_and_norm2 = Add_and_Norm(d_model)                   
 
@@ -153,11 +153,11 @@ class Decoder_Block(nn.Module):
 
 # taken from https://pytorch.org/tutorials/beginner/transformer_tutorial.html#:~:text=class%20PositionalEncoding(nn.Module)%3A 
 class Positional_Encoding(nn.Module):                    
-    def __init__(self, d_model, dropout_rate=0.1, max_len=5000):
+    def __init__(self, d_model, device, dropout_rate=0.1, max_len=5000):
         super().__init__()
         self.d_model = d_model
         self.dropout = nn.Dropout(dropout_rate)
-        self.pos_encoding = torch.zeros(1, max_len, d_model)                       # each "word" has encoding of size d_model
+        self.pos_encoding = torch.zeros([1, max_len, d_model], device=device)                       # each "word" has encoding of size d_model
 
         # calculate e^(2i * log(n)/d_model) where n = 10000 from original paper and i goes from 0 to d_model/2 because there are d_model PAIRS
         div_term = torch.exp(torch.arange(0, d_model, 2) * -(math.log(torch.tensor(10000.0)) / d_model))  
@@ -189,10 +189,11 @@ class Position_wise_ffn(nn.Module):                           # 2 fully connecte
 
 # TODO: what if padding is not 0?
 class Self_Attention(nn.Module):            # q and k have dimensions d_v by d_k
-    def __init__(self):
-        super().__init__()        
+    def __init__(self, device):
+        super().__init__()  
+        self.device = device      
 
-    def forward(self, q, k, v,is_masked=False, padding=0):
+    def forward(self, q, k, v, is_masked=False, padding=0):
         d_k = q.size(-1)                                                                                   # get last dimension of q (should be d_k)
         padding = padding                                                                            
         attention_weights = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(d_k)                          # want last two dimensions to get swapped
@@ -203,7 +204,7 @@ class Self_Attention(nn.Module):            # q and k have dimensions d_v by d_k
         # target mask (for decoder)
         if is_masked:                       
             # combine padding and target mask. Should have dimensions (target_sequence_len, target_sequence_len)
-            mask = torch.tril(torch.ones(1, attention_weights.size(-1), attention_weights.size(-1))).bool() & mask    # target sequence length for dim = -1 should be the same as dim = -2   
+            mask = torch.tril(torch.ones([1, attention_weights.size(-1), attention_weights.size(-1)], device=self.device)).bool() & mask    # target sequence length for dim = -1 should be the same as dim = -2   
         
         attention_weights = attention_weights.masked_fill(mask == 0, -1e9)                                  # set all values we want to ignore to -infinity
         

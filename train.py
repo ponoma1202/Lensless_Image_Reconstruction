@@ -6,7 +6,8 @@ from tqdm import tqdm
 import os
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID" 
-os.environ["CUDA_VISIBLE_DEVICES"] = '0'
+os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2'
+gpu_number = 1
 
 def main():
     # Use CIFAR 10 for the data
@@ -29,11 +30,12 @@ def main():
     in_dim = 256                # Number of embeddings in input sequence (size of input vocabulary). Pixels have range [0, 255]
     out_dim = 10                # Number of embeddings in output sequence. Each image is labeled with a single class (10 total classes)
     
-    # Initialize model
-    model = Transformer(in_dim, out_dim)
-    
-    # move to GPU if available
+    # See if gpu is available
+    torch.cuda.set_device(gpu_number)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    # Initialize model and move to GPU if available
+    model = Transformer(in_dim, out_dim, device)
     model.to(device)
 
     learning_rate = 0.001
