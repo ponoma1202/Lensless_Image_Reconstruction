@@ -5,8 +5,8 @@ from utils import Rescale
 from tqdm import tqdm
 import os
 
-def train():
-    print('Training model...')
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID" 
+os.environ["CUDA_VISIBLE_DEVICES"] = '0'
 
 def main():
     # Use CIFAR 10 for the data
