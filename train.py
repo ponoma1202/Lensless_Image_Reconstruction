@@ -12,6 +12,8 @@ def main():
     # Use CIFAR 10 for the data
     batch_size = 4
     num_epochs = 10
+    save_dir = './checkpoint'
+
     transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),                  # issue: scales image to [0,1] range          
                                                 # do not want to center around 0. center around mean instead to avoid negative values (for embedding)
                                                 torchvision.transforms.Normalize((0, 0, 0), (0.247, 0.243, 0.261)),       # from https://github.com/kuangliu/pytorch-cifar/issues/19  
@@ -38,14 +40,14 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)           # TODO: potentially add learning rate scheduler later and change parameters to paper's params
     criterion = torch.nn.CrossEntropyLoss()
 
-    if not os.path.exists('./checkpoint'):          # TODO: added this for saving purposes - VP
-        os.mkdir('./checkpoint')
+    if not os.path.exists(save_dir):          # TODO: added this for saving purposes - VP
+        os.mkdir(save_dir)
 
-    train(model, trainloader, optimizer, criterion, num_epochs, device)
+    train(model, trainloader, optimizer, criterion, num_epochs, device, save_dir)
     validate(model, testloader, criterion, device)
 
 
-def train(model, trainloader, optimizer, criterion, num_epochs, device):
+def train(model, trainloader, optimizer, criterion, num_epochs, device, save_dir):
     model.train()
     
     for epoch in range(num_epochs):
@@ -62,7 +64,7 @@ def train(model, trainloader, optimizer, criterion, num_epochs, device):
             total_correct += (pred == target).sum().item()                              # sum for list is a list so need to use .item()
         print(f'Epoch {epoch+1}/{num_epochs}, Loss: {loss.item()}, Accuracy: {total_correct/len(trainloader.dataset)}')
     
-    
+    torch.save(model.state_dict(), save_dir + '/model.pth')         
 
 def validate(model, testloader, criterion, device):
     model.eval()
