@@ -36,10 +36,8 @@ class Transformer(nn.Module):
         target = target.unsqueeze(1)  
         decoder_in = self.out_embedding(target) * math.sqrt(self.d_model)           # decoder embeds target sequence
         decoder_in = self.out_positional_encoding(decoder_in)
-        decoder_output = self.decoder(encoder_output, decoder_in)
-
-        # TODO: check why there is an extra dimension in output (4, 1, 10)
-        decoder_output = self.linear(decoder_output)                                                 # do final linear layer to get output to desired number of classes/sequence length
+        decoder_output = self.decoder(encoder_output, decoder_in)                   # output dimensions are: (batch size, target sequence length, d_model)
+        decoder_output = self.linear(decoder_output)                                # do final linear layer to get output to desired number of classes/sequence length
         return decoder_output                                                                        
 
 # list of all encoder blocks
@@ -187,7 +185,14 @@ class Position_wise_ffn(nn.Module):                           # 2 fully connecte
         return x
 
 
-# TODO: what if padding is not 0?
+class MultiHeadedAttention(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self):
+        pass
+
+
 class Self_Attention(nn.Module):            # q and k have dimensions d_v by d_k
     def __init__(self, device):
         super().__init__()  

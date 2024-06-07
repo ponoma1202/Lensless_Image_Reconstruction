@@ -11,7 +11,7 @@ gpu_number = 1
 
 def main():
     # Use CIFAR 10 for the data
-    batch_size = 4
+    batch_size = 32
     num_epochs = 10
     save_dir = './checkpoint'
 
@@ -31,18 +31,21 @@ def main():
     out_dim = 10                # Number of embeddings in output sequence. Each image is labeled with a single class (10 total classes)
     
     # See if gpu is available
-    torch.cuda.set_device(gpu_number)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+        torch.cuda.set_device(gpu_number) 
+    else:
+        device = torch.device("cpu")
     
     # Initialize model and move to GPU if available
     model = Transformer(in_dim, out_dim, device)
     model.to(device)
 
-    learning_rate = 0.001
+    learning_rate = 1e-5
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)           # TODO: potentially add learning rate scheduler later and change parameters to paper's params
     criterion = torch.nn.CrossEntropyLoss()
 
-    if not os.path.exists(save_dir):          # TODO: added this for saving purposes - VP
+    if not os.path.exists(save_dir):          
         os.mkdir(save_dir)
 
     train(model, trainloader, optimizer, criterion, num_epochs, device, save_dir)
@@ -75,7 +78,7 @@ def validate(model, testloader, criterion, device):
         for step, batch in enumerate(tqdm(testloader)):
             input, target = batch
             input, target = input.to(device), target.to(device)
-            output = model(input)
+            output = model(input, target)
             loss = criterion(output, target)
             pred = output.argmax(dim=1)
             total_correct += (pred == target).sum().item()
