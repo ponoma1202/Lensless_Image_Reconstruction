@@ -184,13 +184,36 @@ class Position_wise_ffn(nn.Module):                           # 2 fully connecte
         x = self.linear2(x)
         return x
 
-
+# TODO: first test with 1 head and make sure results are the same as just using self-attention
 class MultiHeadedAttention(nn.Module):
-    def __init__(self):
+    def __init__(self, num_heads, d_model, device):
         super().__init__()
+        self.num_heads = num_heads
 
-    def forward(self):
-        pass
+        # If doesn't divide evenly, concatenation won't work.
+        assert d_model % num_heads == 0
+        self.d_key = d_model // num_heads
+
+        self.attention = Self_Attention(device)
+
+    def forward(self, q, k, v):
+        # 1 - split into heads
+        q = q.view(q.size(0), q.size(1), self.num_heads, self.d_key)                # (batch size, sequence len, num heads, d_key)
+        k = k.view(k.size(0), k.size(1), self.num_heads, self.d_key)
+        v = v.view(v.size(0), v.size(1), self.num_heads, self.d_key)
+
+        # 2 - swap num_heads and sequence length dimensions to split each batch along each head
+        q = q.transpose(1, 2)                                                       # (batch size, num_heads, sequence len, d_key)
+        k = k.transpose(1, 2)
+        v = v.transpose(1, 2)
+
+        # 3 - pass into self-attention layer
+        output = self.attention(q, k, v)
+
+        # 4 - Reverse step 2 then concatenate heads
+        output = output.transpose(1, 2).contiguous()                                             # Need contiguous because .view() changes the way the tensor is stored (not stored consecutively in memory anymore)
+        output = output.view(output.size(0), -1, self.d_key * self.num_heads)
+        return output
 
 
 class Self_Attention(nn.Module):            # q and k have dimensions d_v by d_k
