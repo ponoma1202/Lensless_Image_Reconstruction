@@ -57,17 +57,21 @@ def train(model, trainloader, optimizer, criterion, num_epochs, device, save_dir
     
     for epoch in range(num_epochs):
         total_correct = 0
+        total = 0
         for step, batch in enumerate(tqdm(trainloader)):
             input, target = batch
             input, target = input.to(device), target.to(device)
             output = model(input, target)                                                    # result is a (num_classes, batch_size) tensor
             optimizer.zero_grad()
-            loss = criterion(output.squeeze(), target)                                            # take argmax to get the class with the highest "probability"
+            loss = criterion(output.squeeze(), target)                                       # take argmax to get the class with the highest "probability"
             loss.backward()
             optimizer.step() 
-            pred = output.squeeze().argmax(dim=1)                           # output is (batch_size, target seq len, num_classes) so need to squeeze to (batch_size, num_classes) 
-            total_correct += (pred == target).sum().item()                              # sum for list is a list so need to use .item()
-        print(f'Epoch {epoch+1}/{num_epochs}, Loss: {loss.item()}, Accuracy: {total_correct/len(trainloader.dataset)}')
+            pred = output.squeeze().argmax(dim=1)                                       # output is (batch_size, target seq len, num_classes) so need to squeeze to (batch_size, num_classes). For classification, target seq len = 1
+            total += target.size(0)                             # get batch size
+            total_correct += (pred == target).sum().item()                              # summing over a list results in a list so need to use .item() to get a number.
+        print("Total number correct: ", total_correct)
+        print("Total number of images", len(trainloader.dataset))
+        print(f'Epoch {epoch+1}/{num_epochs}, Loss: {loss.item()}, Accuracy: {len(trainloader.dataset)}')
     
     torch.save(model.state_dict(), save_dir + '/model.pth')         
 
@@ -79,8 +83,8 @@ def validate(model, testloader, criterion, device):
             input, target = batch
             input, target = input.to(device), target.to(device)
             output = model(input, target)
-            loss = criterion(output, target)
-            pred = output.argmax(dim=1)
+            loss = criterion(output.squeeze(), target)                                  # Need to .squeeze() because of headed attention.
+            pred = output.squeeze().argmax(dim=1)
             total_correct += (pred == target).sum().item()
         print(f'Validation Loss: {loss.item()}, Validation Accuracy: {total_correct/len(testloader.dataset)}')
     
