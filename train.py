@@ -71,14 +71,16 @@ def train(model, trainloader, optimizer, criterion, num_epochs, device, save_dir
             total_correct += (pred == target).sum().item()                              # summing over a list results in a list so need to use .item() to get a number.
         print("Total number correct: ", total_correct)
         print("Total number of images", len(trainloader.dataset))
-        print(f'Epoch {epoch+1}/{num_epochs}, Loss: {loss.item()}, Accuracy: {len(trainloader.dataset)}')
+        print(f'Epoch {epoch+1}/{num_epochs}, Loss: {loss.item()}, Accuracy: {total_correct / len(trainloader.dataset)}')
     
     torch.save(model.state_dict(), save_dir + '/model.pth')         
 
 def validate(model, testloader, criterion, device):
+    #model.load_state_dict(torch.load('./checkpoint/model.pth'))                         # if loading from saved model
     model.eval()
-
+    print("Starting validation...")
     with torch.no_grad():
+        total_correct = 0
         for step, batch in enumerate(tqdm(testloader)):
             input, target = batch
             input, target = input.to(device), target.to(device)
