@@ -13,7 +13,7 @@ def main():
     # Use CIFAR 10 for the data
     batch_size = 32
     num_epochs = 10
-    save_dir = './checkpoint'
+    save_path = './checkpoint/model.pth'
 
     transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),                  # issue: scales image to [0,1] range          
                                                 # do not want to center around 0. center around mean instead to avoid negative values (for embedding)
@@ -45,14 +45,14 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)           # TODO: potentially add learning rate scheduler later and change parameters to paper's params
     criterion = torch.nn.CrossEntropyLoss()
 
-    if not os.path.exists(save_dir):          
-        os.mkdir(save_dir)
+    if not os.path.exists(save_path):          
+        os.mkdir(save_path)
 
-    train(model, trainloader, optimizer, criterion, num_epochs, device, save_dir)
-    validate(model, testloader, criterion, device)
+    train(model, trainloader, optimizer, criterion, num_epochs, device, save_path)
+    validate(model, testloader, criterion, device, save_path)
 
 
-def train(model, trainloader, optimizer, criterion, num_epochs, device, save_dir):
+def train(model, trainloader, optimizer, criterion, num_epochs, device, save_path):
     model.train()
     
     for epoch in range(num_epochs):
@@ -73,10 +73,12 @@ def train(model, trainloader, optimizer, criterion, num_epochs, device, save_dir
         print("Total number of images", len(trainloader.dataset))
         print(f'Epoch {epoch+1}/{num_epochs}, Loss: {loss.item()}, Accuracy: {total_correct / len(trainloader.dataset)}')
     
-    torch.save(model.state_dict(), save_dir + '/model.pth')         
+    torch.save(model.state_dict(), save_path)         
 
-def validate(model, testloader, criterion, device):
-    #model.load_state_dict(torch.load('./checkpoint/model.pth'))                         # if loading from saved model
+def validate(model, testloader, criterion, device, save_path, load=False):
+    if load:
+        model.load_state_dict(torch.load(save_path))                         # if loading from saved model
+    
     model.eval()
     print("Starting validation...")
     with torch.no_grad():
