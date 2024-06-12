@@ -13,7 +13,7 @@ class Transformer(nn.Module):
         self.in_embedding = nn.Embedding(in_dim, d_model)                       # input embedding layer
         self.positional_encoding = Positional_Encoding(d_model, device)         # input positional encoding for encoder
 
-        self.linear = nn.Linear(d_model, out_dim)                               # linear layer to get output classes
+        self.mlp_head = nn.Linear(d_model, out_dim)                               # linear layer to get output classes
         self.softmax = nn.Softmax(dim=-1)                                       # softmax to get probabilities of each class
         self.encoder = Encoder(d_model, d_ffn, n_heads, n_blocks, dropout_rate, device)
 
@@ -24,8 +24,12 @@ class Transformer(nn.Module):
         encoder_in = torch.cat((class_token, embedded_img), dim=1)              # concatenate the class token with the flattened image embedding along num_tokens dimension (dim = 1)
         
         encoder_in = self.positional_encoding(encoder_in)                       # encoder_in is a (batch_size, seq_len, d_model) tensor
-        encoder_output = self.encoder(encoder_in)
-        return encoder_output
+        encoder_output = self.encoder(encoder_in)                               # output = (batch_size, num_tokens, d_model)
+
+        # Take out class token and run MLP head only on class token
+        class_token_learned = encoder_output[:, 0, :]
+        output = self.mlp_head(class_token_learned)     
+        return output
     
 # list of all encoder blocks
 class Encoder(nn.Module):
