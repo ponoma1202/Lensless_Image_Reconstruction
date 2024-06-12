@@ -4,41 +4,29 @@ import math
 
 # based on https://github.com/brandokoch/attention-is-all-you-need-paper/tree/master and pytorch tutorial
 
-# TODO: look up xavier initialization for weights
-# TODO: implement patch embedding for image data
-
-# Transformer model
 class Transformer(nn.Module):
     def __init__(self, in_dim, out_dim, device, n_heads=1, n_blocks=6, d_model=512, d_ffn=2048, dropout_rate=0.1):
         super().__init__()
         self.d_model = d_model
-        self.flatten = nn.Flatten()                              # flatten the input sequence since we are dealing with images
-        self.in_embedding = nn.Embedding(in_dim, d_model)               # input embedding layer
-        self.out_embedding = nn.Embedding(out_dim, d_model)             # output embedding layer
-        self.in_positional_encoding = Positional_Encoding(d_model, device)      # input positional encoding for encoder
-        self.out_positional_encoding = Positional_Encoding(d_model, device)     # output positional encoding for decoder
+        self.class_token = nn.Parameter(torch.zeros(1, 1, d_model))             # Note: model does not patchify like from the original paper: "An Image is Worth 16x16 Words"
+        self.flatten = nn.Flatten()                                             # flatten the input sequence since we are dealing with images
+        self.in_embedding = nn.Embedding(in_dim, d_model)                       # input embedding layer
+        self.positional_encoding = Positional_Encoding(d_model, device)         # input positional encoding for encoder
 
-        self.linear = nn.Linear(d_model, out_dim)                       # linear layer to get output classes
-        self.softmax = nn.Softmax(dim=-1)                               # softmax to get probabilities of each class
+        self.linear = nn.Linear(d_model, out_dim)                               # linear layer to get output classes
+        self.softmax = nn.Softmax(dim=-1)                                       # softmax to get probabilities of each class
+        self.encoder = Encoder(d_model, d_ffn, n_heads, n_blocks, dropout_rate, device)
+
+    def forward(self, x, target):                                                       
+        x = self.flatten(x).to(dtype=torch.long, device=x.device)               # converting into another tensor type moves tensor to cpu by default.         
+        class_token = self.class_token.expand(x.size(0), -1, -1)                # make sure there is a class_token for every batch in image
+        embedded_img = self.in_embedding(x) * math.sqrt(self.d_model)           # multiply embeddings by sqrt(d_model) as in paper
+        encoder_in = torch.cat((class_token, embedded_img), dim=1)              # concatenate the class token with the flattened image embedding along num_tokens dimension (dim = 1)
         
-        self.encoder = Encoder(d_model, d_ffn, n_heads, n_blocks, dropout_rate, device)                      # Note: when creating new tensors, need to specify device they are created on (go on cpu by default)
-        self.decoder = Decoder(d_model, d_ffn, n_heads, n_blocks, dropout_rate, device)
-    
-    # TODO: maybe make it so that masks are passed in so they could be modified (not necessary for now)
-
-    def forward(self, x, target):
-        x = self.flatten(x).to(dtype=torch.long, device=x.device)                 # converting into another tensor type moves tensor to cpu by default.         
-        encoder_in = self.in_embedding(x) * math.sqrt(self.d_model)               # multiply embeddings by sqrt(d_model) as in paper
-        encoder_in = self.in_positional_encoding(encoder_in)                      # encoder_in is a (batch_size, seq_len, d_model) tensor
+        encoder_in = self.positional_encoding(encoder_in)                       # encoder_in is a (batch_size, seq_len, d_model) tensor
         encoder_output = self.encoder(encoder_in)
-
-        target = target.unsqueeze(1)  
-        decoder_in = self.out_embedding(target) * math.sqrt(self.d_model)           # decoder embeds target sequence
-        decoder_in = self.out_positional_encoding(decoder_in)
-        decoder_output = self.decoder(encoder_output, decoder_in)                   # output dimensions are: (batch size, target sequence length, d_model)
-        decoder_output = self.linear(decoder_output)                                # do final linear layer to get output to desired number of classes/sequence length
-        return decoder_output                                                                        
-
+        return encoder_output
+    
 # list of all encoder blocks
 class Encoder(nn.Module):
     def __init__(self, d_model, d_ffn, n_heads, n_blocks, dropout_rate, device):
@@ -51,17 +39,6 @@ class Encoder(nn.Module):
             x = encoder_layer(x)                                    # call on individual encoder block one at a time.
         return x
     
-class Decoder(nn.Module):
-    def __init__(self, d_model, d_ffn, n_heads, n_blocks, dropout_rate, device):
-        super().__init__()
-
-        self.decoder_layers = nn.ModuleList(Decoder_Block(d_model, d_ffn, n_heads, dropout_rate, device) for _ in range(n_blocks))
-
-    def forward(self, encoder_output, x):
-        for decoder_layer in self.decoder_layers:
-            x = decoder_layer(encoder_output, x)                        # Transformer actually looks like a U-Net and Encoders are processed first, outputs are saved, and passed into respective decoders.                       
-        return x
-
 # list of all decoder blocks
 class Encoder_Block(nn.Module):
     def __init__(self, d_model, d_ffn, n_heads, dropout_rate, device):
@@ -93,97 +70,10 @@ class Encoder_Block(nn.Module):
         ffn = self.dropout2(ffn)
         ffn = self.add_and_norm2(x, ffn)
         return ffn
-
-class Decoder_Block(nn.Module):
-    def __init__(self, d_model, d_ffn, n_heads, dropout_rate, device):
-        super().__init__()
-        d_model = d_model
-        d_ffn = d_ffn                                              # feed forward network layer ~ 4 times the size of d_model
-        dropout_rate = dropout_rate
-
-        # masked self-attention
-        self.Wq_1 = nn.Linear(d_model, d_model)                    # paper says it uses dim = 512 for outputs for all embeddings
-        self.Wk_1 = nn.Linear(d_model, d_model)                    # if implementing multiheaded attention later, good to have these here to use in both mutltiheaded and self-attention classes
-        self.Wv_1 = nn.Linear(d_model, d_model)
-        self.attention1 = Multi_Headed_Attention(n_heads, d_model, device)    
-        self.dropout1 = nn.Dropout(dropout_rate)
-        self.add_and_norm1 = Add_and_Norm(d_model)
-
-        # encoder-decoder attention (using keys and values from encoder)
-        self.Wq_2 = nn.Linear(d_model, d_model)
-        self.Wk_2 = nn.Linear(d_model, d_model)
-        self.Wv_2 = nn.Linear(d_model, d_model)
-        self.attention2 = Multi_Headed_Attention(n_heads, d_model, device)
-        self.dropout2 = nn.Dropout(dropout_rate)
-        self.add_and_norm2 = Add_and_Norm(d_model)                   
-
-        # feed forward network
-        self.ffn = Position_wise_ffn(d_model, d_ffn)            
-        self.dropout3 = nn.Dropout(dropout_rate)
-        self.add_and_norm3 = Add_and_Norm(d_model)
-
-    def forward(self, encoder_output, x):                   # x = decoder input, which is composed of the target sequence embeddings
-        # masked self-attention 
-        Q_1 = self.Wq_1(x)
-        K_1 = self.Wk_1(x)
-        V_1 = self.Wv_1(x)
-        attention_layer1 = self.attention1(Q_1, K_1, V_1, is_masked=True)          
-        attention_layer1 = self.dropout1(attention_layer1)
-        x = self.add_and_norm1(attention_layer1, x)
-
-        # encoder-decoder attention
-        Q_2 = self.Wq_2(x)
-        K_2 = self.Wk_2(encoder_output)
-        V_2 = self.Wv_2(encoder_output)
-        attention_layer2 = self.attention2(Q_2, K_2, V_2)
-        attention_layer2 = self.dropout2(attention_layer2)
-        x = self.add_and_norm2(attention_layer2, x)
-
-        # feed forward network
-        ffn = self.ffn(x)
-        ffn = self.dropout3(ffn)
-        ffn = self.add_and_norm3(x, ffn)
-        return ffn
-
-
-# Helper classes
-
-# taken from https://pytorch.org/tutorials/beginner/transformer_tutorial.html#:~:text=class%20PositionalEncoding(nn.Module)%3A 
-class Positional_Encoding(nn.Module):                    
-    def __init__(self, d_model, device, dropout_rate=0.1, max_len=5000):
-        super().__init__()
-        self.d_model = d_model
-        self.dropout = nn.Dropout(dropout_rate)
-        self.pos_encoding = torch.zeros([1, max_len, d_model], device=device)                       # each "word" has encoding of size d_model
-
-        # calculate e^(2i * log(n)/d_model) where n = 10000 from original paper and i goes from 0 to d_model/2 because there are d_model PAIRS
-        div_term = torch.exp(torch.arange(0, d_model, 2) * -(math.log(torch.tensor(10000.0)) / d_model))  
-
-        # create (max_len, 1) column tensor for all positions (numbered)
-        pos = torch.arange(0, max_len).unsqueeze(1)
-
-        # broadcast and set even indices to sin  and odd indices to cos
-        self.pos_encoding[0, :, 0::2] = torch.sin(pos * div_term)                  # select all rows. Start at column 0 and skip every 2 cols
-        self.pos_encoding[0, :, 1::2] = torch.cos(pos * div_term)                  
-
-    def forward(self, x):
-        x = x + self.pos_encoding[:, :x.size(1)]                                   # trim down pos_encoding to size of actual input sequence. dim = (1, seq_len, d_model)
-        x = self.dropout(x)                          
-        return x
-
-class Position_wise_ffn(nn.Module):                           # 2 fully connected dense layers  https://medium.com/@hunter-j-phillips/position-wise-feed-forward-network-ffn-d4cc9e997b4c 
-    def __init__(self, d_model, d_ffn):                       # feed forward just means no recurrent relations
-        super().__init__()
-        self.linear1 = nn.Linear(d_model, d_ffn)
-        self.linear2 = nn.Linear(d_ffn, d_model)
     
-    def forward(self, x):
-        x = self.linear1(x)         
-        x = torch.relu(x)
-        x = self.linear2(x)
-        return x
 
-# TODO: first test with 1 head and make sure results are the same as just using self-attention
+### Helper classes ###
+
 class Multi_Headed_Attention(nn.Module):
     def __init__(self, n_heads, d_model, device):
         super().__init__()
@@ -236,8 +126,44 @@ class Self_Attention(nn.Module):            # q and k have dimensions d_v by d_k
         attention_weights = attention_weights.masked_fill(mask == 0, -1e9)                                  # set all values we want to ignore to -infinity
         
         probabilities = torch.softmax(attention_weights, dim=-1)                                            # gets the probabilities along last dimension. For 2d the result of softmax is a (d_v, 1) vector.
-        return torch.matmul(probabilities, v)      
+        return torch.matmul(probabilities, v)  
+
+# Followed: https://pytorch.org/tutorials/beginner/transformer_tutorial.html#:~:text=class%20PositionalEncoding(nn.Module)%3A 
+class Positional_Encoding(nn.Module):                    
+    def __init__(self, d_model, device, dropout_rate=0.1, max_len=5000):
+        super().__init__()
+        self.d_model = d_model
+        self.dropout = nn.Dropout(dropout_rate)
+        self.pos_encoding = torch.zeros([1, max_len, d_model], device=device)                       # each "word" has encoding of size d_model
+
+        # calculate e^(2i * log(n)/d_model) where n = 10000 from original paper and i goes from 0 to d_model/2 because there are d_model PAIRS
+        div_term = torch.exp(torch.arange(0, d_model, 2) * -(math.log(torch.tensor(10000.0)) / d_model))  
+
+        # create (max_len, 1) column tensor for all positions (numbered)
+        pos = torch.arange(0, max_len).unsqueeze(1)
+
+        # broadcast and set even indices to sin  and odd indices to cos
+        self.pos_encoding[0, :, 0::2] = torch.sin(pos * div_term)                  # select all rows. Start at column 0 and skip every 2 cols
+        self.pos_encoding[0, :, 1::2] = torch.cos(pos * div_term)                  
+
+    def forward(self, x):
+        x = x + self.pos_encoding[:, :x.size(1)]                                   # trim down pos_encoding to size of actual input sequence. dim = (1, num_tokens, d_model)
+        x = self.dropout(x)                          
+        return x
+
+# called "position wise" because it already includes positional embeddings from previous layers
+class Position_wise_ffn(nn.Module):                           # 2 fully connected dense layers  https://medium.com/@hunter-j-phillips/position-wise-feed-forward-network-ffn-d4cc9e997b4c 
+    def __init__(self, d_model, d_ffn):                       # feed forward just means no recurrent relations
+        super().__init__()
+        self.linear1 = nn.Linear(d_model, d_ffn)
+        self.linear2 = nn.Linear(d_ffn, d_model)
+        self.gelu = nn.GELU()
     
+    def forward(self, x):
+        x = self.linear1(x)         
+        x = self.gelu(x)
+        x = self.linear2(x)
+        return x    
 
 class Add_and_Norm(nn.Module):
     def __init__(self, d_model):
