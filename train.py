@@ -13,7 +13,7 @@ gpu_number = 0
 def main():
     # Using CIFAR 10 for the data
 
-    batch_size = 64
+    batch_size = 128
     num_epochs = 10
     learning_rate = 1e-4
     num_classes = 10
@@ -90,6 +90,7 @@ def train_epoch(model, epoch, num_epochs, trainloader, optimizer, criterion, dev
         total_loss += loss.item()
         total_correct += (pred == target).sum().item()                                  # summing over a list results in a list so need to use .item() to get a number.
         pred, target = pred.to("cpu").numpy(), target.to("cpu").numpy()                 # Need to convert to numpy arrays and move to cpu for wandb confusion matrix
+        wandb.log({'confusion_mat' : wandb.sklearn.plot_confusion_matrix(target, pred, class_names)})
         wandb.log({"conf_mat" : wandb.plot.confusion_matrix(probs=None,                 # Track confusion matrix to see accuracy for each class
                         y_true=target, preds=pred,
                         class_names=class_names)})
