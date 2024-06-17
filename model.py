@@ -5,7 +5,7 @@ import math
 # based on https://github.com/brandokoch/attention-is-all-you-need-paper/tree/master and pytorch tutorial
 
 class Transformer(nn.Module):
-    def __init__(self, in_dim, out_dim, device, n_heads=1, n_blocks=6, d_model=512, d_ffn=2048, dropout_rate=0.1):
+    def __init__(self, in_dim, out_dim, device, n_heads=8, n_blocks=6, d_model=512, d_ffn=2048, dropout_rate=0.1):
         super().__init__()
         self.d_model = d_model
         self.class_token = nn.Parameter(torch.zeros(1, 1, d_model))             # Note: model does not patchify like from the original paper: "An Image is Worth 16x16 Words"
@@ -13,8 +13,10 @@ class Transformer(nn.Module):
         self.in_embedding = nn.Embedding(in_dim, d_model)                       # input embedding layer
         self.positional_encoding = Positional_Encoding(d_model, device)         # input positional encoding for encoder
 
+        # MLP head from ViT
         self.mlp_head = nn.Linear(d_model, out_dim)                               # linear layer to get output classes
-        self.softmax = nn.Softmax(dim=-1)                                       # softmax to get probabilities of each class
+        self.tanh = nn.Tanh()                                                   # non linearity activation function used in MLP head
+
         self.encoder = Encoder(d_model, d_ffn, n_heads, n_blocks, dropout_rate, device)
 
     def forward(self, x, target):                                                       
@@ -28,6 +30,7 @@ class Transformer(nn.Module):
 
         # Take out class token and run MLP head only on class token
         class_token_learned = encoder_output[:, 0, :]
+        class_token_learned = self.tanh(class_token_learned)
         output = self.mlp_head(class_token_learned)     
         return output
     
@@ -133,7 +136,9 @@ class Self_Attention(nn.Module):            # q and k have dimensions d_v by d_k
         return torch.matmul(probabilities, v)  
 
 # Followed: https://pytorch.org/tutorials/beginner/transformer_tutorial.html#:~:text=class%20PositionalEncoding(nn.Module)%3A 
-class Positional_Encoding(nn.Module):                    
+class Positional_Encoding(nn.Module):                   
+
+    # TODO: for num_channels > 3 do convolution to embed: https://github.com/s-chh/PyTorch-Scratch-Vision-Transformer-ViT-MNIST-CIFAR10/blob/main/model.py   
     def __init__(self, d_model, device, dropout_rate=0.1, max_len=5000):
         super().__init__()
         self.d_model = d_model

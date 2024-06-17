@@ -16,6 +16,7 @@ class Rescale(nn.Module):
     
 
 # Same learning rate scheduler as in "Attention is All You Need" paper
+# Referencing https://github.com/jadore801120/attention-is-all-you-need-pytorch/blob/master/transformer/Optim.py 
 class DynamicLRScheduler(torch.optim.lr_scheduler._LRScheduler):
     def __init__(self, optimizer, d_model, warmup_steps=4000):
         super().__init__(optimizer)
