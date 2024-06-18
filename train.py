@@ -1,24 +1,28 @@
 import torch
-from model import Transformer
 import torchvision
-from utils import Rescale
 from tqdm import tqdm
 import os
 import wandb
 
+from model import Transformer
+from utils import Rescale
+from utils import TransformerScheduler
+
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID" 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2'
-gpu_number = 0
+gpu_number = 2
 
 def main():
     # Using CIFAR 10 for the data
 
     batch_size = 64
     num_epochs = 100
-    learning_rate = 1e-4
+    learning_rate = 1e-5
     num_classes = 10
-    num_heads = 8
+    num_heads = 1
     num_blocks = 6
+    d_model = 512                                                                                       # dimension of hidden layer in Transformer
+    use_scheduler = True
     save_path = './checkpoint/model.pth'
     class_names = ['plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']      # For confusion matrix
     run = wandb.init(project='basic_transformer', config={"learning_rate":learning_rate,
@@ -28,7 +32,9 @@ def main():
                                                     "batch_size":batch_size,
                                                     "classes":num_classes,
                                                     "num_heads":num_heads,
-                                                    "num_encoder_layers": num_blocks})
+                                                    "num_encoder_layers": num_blocks,
+                                                    "use_scheduluer":use_scheduler,
+                                                    "d_model":d_model})
 
     transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),                  # issue: scales image to [0,1] range          
                                                 # do not want to center around 0. center around mean instead to avoid negative values (for embedding)
@@ -57,26 +63,29 @@ def main():
         device = torch.device("cpu")
     
     # Initialize model and move to GPU if available
-    model = Transformer(in_dim, out_dim, device, num_heads, num_blocks)
+    model = Transformer(in_dim, out_dim, device, num_heads, num_blocks, d_model)
     model.to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)           # TODO: potentially add learning rate scheduler later and change parameters to paper's params
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)           
     criterion = torch.nn.CrossEntropyLoss()
+    scheduler = TransformerScheduler(optimizer, d_model)
 
     if not os.path.exists(save_path):          
         os.mkdir(save_path)
 
-    train(model, trainloader, testloader, optimizer, criterion, num_epochs, device, save_path, class_names)
+    train(model, trainloader, testloader, optimizer, criterion, num_epochs, device, save_path, class_names, scheduler, use_scheduler)
     run.finish()
 
 
 # Includes both training and validation
-def train(model, trainloader, testloader, optimizer, criterion, num_epochs, device, save_path, class_names):
+def train(model, trainloader, testloader, optimizer, criterion, num_epochs, device, save_path, class_names, scheduler, use_scheduler):
     for epoch in range(num_epochs):
         print(f'Start training epoch {epoch+1}/{num_epochs}...')
         train_accuracy, train_loss = train_epoch(model, epoch, num_epochs, trainloader, optimizer, criterion, device, class_names) 
         val_acc, val_loss = validate(model, testloader, criterion, device, save_path)
-        wandb.log({"training_accuracy":train_accuracy, "training_loss":train_loss, "validation_acc":val_acc, "validation_loss":val_loss, "epoch":epoch})
+        wandb.log({"training_accuracy":train_accuracy, "training_loss":train_loss, "validation_acc":val_acc, "validation_loss":val_loss, "epoch":epoch, "learning rate":optimizer.param_groups[-1]['lr']})
+    if use_scheduler:
+        scheduler.step()
     torch.save(model.state_dict(), save_path)
         
 
