@@ -68,7 +68,7 @@ def main():
 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)           
     criterion = torch.nn.CrossEntropyLoss()
-    scheduler = TransformerScheduler(optimizer, d_model)
+    scheduler = TransformerScheduler(optimizer, d_model, learning_rate)
 
     if not os.path.exists(save_path):          
         os.mkdir(save_path)
@@ -81,15 +81,15 @@ def main():
 def train(model, trainloader, testloader, optimizer, criterion, num_epochs, device, save_path, class_names, scheduler, use_scheduler):
     for epoch in range(num_epochs):
         print(f'Start training epoch {epoch+1}/{num_epochs}...')
-        train_accuracy, train_loss = train_epoch(model, epoch, num_epochs, trainloader, optimizer, criterion, device, class_names) 
-        val_acc, val_loss = validate(model, testloader, criterion, device, save_path)
+        train_accuracy, train_loss = train_epoch(model, epoch, num_epochs, trainloader, optimizer, criterion, device) 
+        val_acc, val_loss = validate(model, testloader, criterion, device, save_path, class_names)
         wandb.log({"training_accuracy":train_accuracy, "training_loss":train_loss, "validation_acc":val_acc, "validation_loss":val_loss, "epoch":epoch, "learning rate":optimizer.param_groups[-1]['lr']})
     if use_scheduler:
         scheduler.step()
     torch.save(model.state_dict(), save_path)
         
 
-def train_epoch(model, epoch, num_epochs, trainloader, optimizer, criterion, device, class_names):
+def train_epoch(model, epoch, num_epochs, trainloader, optimizer, criterion, device):
     model.train()
     total_correct = 0
     total_loss = 0
@@ -106,10 +106,6 @@ def train_epoch(model, epoch, num_epochs, trainloader, optimizer, criterion, dev
         total_loss += loss.item()
         total_correct += (pred == target).sum().item()                                  # summing over a list results in a list so need to use .item() to get a number.
         pred, target = pred.to("cpu").numpy(), target.to("cpu").numpy()                 # Need to convert to numpy arrays and move to cpu for wandb confusion matrix
-        wandb.log({'confusion_mat' : wandb.sklearn.plot_confusion_matrix(target, pred, class_names)})
-        wandb.log({"conf_mat" : wandb.plot.confusion_matrix(probs=None,                 # Track confusion matrix to see accuracy for each class
-                        y_true=target, preds=pred,
-                        class_names=class_names)})
 
     accuracy = total_correct / len(trainloader.dataset)
     avg_loss = total_loss/ len(trainloader.dataset)
@@ -117,7 +113,7 @@ def train_epoch(model, epoch, num_epochs, trainloader, optimizer, criterion, dev
     return accuracy, avg_loss          
 
 
-def validate(model, testloader, criterion, device, save_path, load=False):
+def validate(model, testloader, criterion, device, save_path, class_names, load=False):
     if load:
         model.load_state_dict(torch.load(save_path))                         # if loading from saved model
     
@@ -126,6 +122,8 @@ def validate(model, testloader, criterion, device, save_path, load=False):
     with torch.no_grad():
         total_correct = 0
         total_loss = 0.0
+        all_targets = torch.tensor([])
+        all_preds = torch.tensor([])
 
         for step, batch in enumerate(tqdm(testloader)):
             input, target = batch
@@ -135,6 +133,15 @@ def validate(model, testloader, criterion, device, save_path, load=False):
             pred = output.squeeze().argmax(dim=1)
             total_loss += loss
             total_correct += (pred == target).sum().item()
+
+            # accumulate all targets and preds and then run confusion matrix
+            all_targets = torch.cat(all_targets, target, dim=0)
+            all_preds = torch.cat(all_preds, pred, dim=0)
+
+        wandb.log({'confusion_mat' : wandb.sklearn.plot_confusion_matrix(all_targets, all_preds, class_names)})
+        wandb.log({"conf_mat" : wandb.plot.confusion_matrix(probs=None,                 # Track confusion matrix to see accuracy for each class
+                        y_true=all_targets, preds=all_preds,
+                        class_names=class_names)})
         accuracy = total_correct/len(testloader.dataset)
         avg_loss = total_loss/len(testloader.dataset)
         print(f'Validation Loss: {avg_loss}, Validation Accuracy: {accuracy} \n')
