@@ -122,8 +122,8 @@ def validate(model, testloader, criterion, device, save_path, class_names, load=
     with torch.no_grad():
         total_correct = 0
         total_loss = 0.0
-        all_targets = torch.tensor([])
-        all_preds = torch.tensor([])
+        all_targets = [] #torch.tensor([], device=device)
+        all_preds = [] #torch.tensor([], device=device)
 
         for step, batch in enumerate(tqdm(testloader)):
             input, target = batch
@@ -135,8 +135,10 @@ def validate(model, testloader, criterion, device, save_path, class_names, load=
             total_correct += (pred == target).sum().item()
 
             # accumulate all targets and preds and then run confusion matrix
-            all_targets = torch.cat(all_targets, target, dim=0)
-            all_preds = torch.cat(all_preds, pred, dim=0)
+            all_targets.extend(target.cpu().numpy())
+            all_preds.extend(pred.cpu().numpy())
+            # all_targets = torch.cat((all_targets, target), dim=0)
+            # all_preds = torch.cat((all_preds, pred), dim=0)
 
         wandb.log({'confusion_mat' : wandb.sklearn.plot_confusion_matrix(all_targets, all_preds, class_names)})
         wandb.log({"conf_mat" : wandb.plot.confusion_matrix(probs=None,                 # Track confusion matrix to see accuracy for each class

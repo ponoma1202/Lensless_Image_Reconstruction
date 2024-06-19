@@ -22,23 +22,10 @@ class TransformerScheduler(torch.optim.lr_scheduler.LambdaLR):
         self.optimizer = optimizer
         self.d_model = d_model
         self.warmup_steps = warmup_steps
-        #self.curr_step = 0
+        
         lr = lambda step : self.d_model**(-0.5) * min(step**(-0.5), step * self.warmup_steps**(-1.5)) if step != 0 else learning_rate       
 
         # TODO: maybe just step right away to avoid step = 0 issue
+        #self.step()
 
         super(TransformerScheduler, self).__init__(optimizer, lr)
-
-    # def get_lr(self):
-    #     return (self.d_model**(-0.5)) * min(self.curr_step**(-0.5), self.curr_step * self.warmup_steps**(-1.5))
-    
-    # # update optimizer's learning rate
-    # def step(self):
-    #     self.curr_step += 1
-    #     self.curr_lr=self.get_lr()
-
-    #     for param in self.optimizer.param_groups:
-    #         param['lr'] = self.cur_lr
-
-    # def get_last_lr(self):
-    #     return [group['lr'] for group in self.optimizer.param_groups]
