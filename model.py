@@ -24,8 +24,12 @@ class Transformer(nn.Module):
     def init_weights(self, m):
         if isinstance(m, nn.Linear):
             torch.nn.init.normal_(m.weight, std=0.001)
+        if isinstance(m, nn.Conv2d):
+            pass                # TODO: do I need to initialize patch embedding?
+            #torch.nn.
 
-
+    # TODO: append class_token to positional encoding and delete it here.
+    
     def forward(self, x, target):                                                       
         x = self.flatten(x).to(dtype=torch.long, device=x.device)               # converting into another tensor type moves tensor to cpu by default.         
         class_token = self.class_token.expand(x.size(0), -1, -1)                # make sure there is a class_token for every batch in image
@@ -142,6 +146,27 @@ class Self_Attention(nn.Module):            # q and k have dimensions d_v by d_k
         probabilities = torch.softmax(attention_weights, dim=-1)                                            # gets the probabilities along last dimension. For 2d the result of softmax is a (d_v, 1) vector.
         return torch.matmul(probabilities, v)  
 
+
+# separate image into patches and do positional embedding + patch embedding for ViT
+# Followed: 
+class Patch_Embedding(nn.Module):
+    def __init__(self, image_size, patch_size, n_channels, d_model, device, dropout_rate=0.1):
+        super().__init__()
+        self.patch_size = patch_size
+        self.d_model = d_model          # same as embedding dimension 
+        self.num_patches = (image_size // patch_size) ** 2 + 1          # add 1 for the class token
+        
+        self.conv = torch.nn.Conv2d(n_channels, d_model, kernel_size=patch_size, stride=patch_size)         # no overlapping means stride needs to be same as patch size
+        self.pos_encoding = nn.Parameter(torch.zeros([1, self.num_patches, d_model], device=device))
+        self.dropout = nn.Dropout(dropout_rate)
+
+    def forward(self, x):
+        x = self.conv(x)        # (batch size, channels, height, width) => (batch size, d_model, height/patch size, width/patch size)
+        x = x.flatten(2)         # result = (batch size, d_model, num_patches). Look at num_patch definition above for the math
+        x = x.transpose(1, 2)           # switch to having num_patch tensors of dimension d_model (512)
+        return x
+
+
 # Followed: https://pytorch.org/tutorials/beginner/transformer_tutorial.html#:~:text=class%20PositionalEncoding(nn.Module)%3A 
 class Positional_Encoding(nn.Module):                   
 
@@ -150,6 +175,9 @@ class Positional_Encoding(nn.Module):
         super().__init__()
         self.d_model = d_model
         self.dropout = nn.Dropout(dropout_rate)
+
+        # TODO: DEBUG AND MAKE POSITIONAL EMBEDDING A PARAMETER
+
         self.pos_encoding = torch.zeros([1, max_len, d_model], device=device)                       # each "word" has encoding of size d_model
 
         # calculate e^(2i * log(n)/d_model) where n = 10000 from original paper and i goes from 0 to d_model/2 because there are d_model PAIRS
@@ -160,7 +188,7 @@ class Positional_Encoding(nn.Module):
 
         # broadcast and set even indices to sin and odd indices to cos
         self.pos_encoding[0, :, 0::2] = torch.sin(pos * div_term)                  # select all rows. Start at column 0 and skip every 2 cols
-        self.pos_encoding[0, :, 1::2] = torch.cos(pos * div_term)                  
+        self.pos_encoding[0, :, 1::2] = torch.cos(pos * div_term)                 
 
     def forward(self, x):
         x = x + self.pos_encoding[:, :x.size(1)]                                   # trim down pos_encoding to size of actual input sequence. dim = (1, num_tokens, d_model)
