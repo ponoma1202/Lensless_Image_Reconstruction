@@ -10,7 +10,7 @@ from utils import TransformerScheduler
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID" 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2'
-gpu_number = 2
+gpu_number = 1
 
 def main():
     # Using CIFAR 10 for the data
@@ -19,10 +19,10 @@ def main():
     num_epochs = 100
     learning_rate = 1e-5
     num_classes = 10
-    num_heads = 1
+    num_heads = 8
     num_blocks = 6
-    d_model = 512                                                                                       # dimension of hidden layer in Transformer
-    use_scheduler = True
+    d_model = 128 # 512                                                                                       # dimension of hidden layer in Transformer
+    use_scheduler = False
     save_path = './checkpoint/model.pth'
     class_names = ['plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']      # For confusion matrix
     run = wandb.init(project='basic_transformer', config={"learning_rate":learning_rate,
@@ -68,23 +68,26 @@ def main():
 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)           
     criterion = torch.nn.CrossEntropyLoss()
-    scheduler = TransformerScheduler(optimizer, d_model, learning_rate)
+    scheduler = None
+    if use_scheduler:
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer) 
+        #scheduler = TransformerScheduler(optimizer, d_model)
 
     if not os.path.exists(save_path):          
         os.mkdir(save_path)
 
-    train(model, trainloader, testloader, optimizer, criterion, num_epochs, device, save_path, class_names, scheduler, use_scheduler)
+    train(model, trainloader, testloader, optimizer, criterion, num_epochs, device, save_path, class_names, scheduler)
     run.finish()
 
 
 # Includes both training and validation
-def train(model, trainloader, testloader, optimizer, criterion, num_epochs, device, save_path, class_names, scheduler, use_scheduler):
+def train(model, trainloader, testloader, optimizer, criterion, num_epochs, device, save_path, class_names, scheduler):
     for epoch in range(num_epochs):
         print(f'Start training epoch {epoch+1}/{num_epochs}...')
         train_accuracy, train_loss = train_epoch(model, epoch, num_epochs, trainloader, optimizer, criterion, device) 
         val_acc, val_loss = validate(model, testloader, criterion, device, save_path, class_names)
         wandb.log({"training_accuracy":train_accuracy, "training_loss":train_loss, "validation_acc":val_acc, "validation_loss":val_loss, "epoch":epoch, "learning rate":optimizer.param_groups[-1]['lr']})
-    if use_scheduler:
+    if scheduler != None:
         scheduler.step()
     torch.save(model.state_dict(), save_path)
         

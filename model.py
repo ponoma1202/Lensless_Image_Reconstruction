@@ -18,6 +18,13 @@ class Transformer(nn.Module):
         self.tanh = nn.Tanh()                                                   # non linearity activation function used in MLP head
 
         self.encoder = Encoder(d_model, d_ffn, n_heads, n_blocks, dropout_rate, device)
+        self.apply(self.init_weights)
+
+    # Initialize weights to very small numbers close to 0, instead of pytorch's default initalization. 
+    def init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            torch.nn.init.normal_(m.weight, std=0.001)
+
 
     def forward(self, x, target):                                                       
         x = self.flatten(x).to(dtype=torch.long, device=x.device)               # converting into another tensor type moves tensor to cpu by default.         
@@ -151,7 +158,7 @@ class Positional_Encoding(nn.Module):
         # create (max_len, 1) column tensor for all positions (numbered)
         pos = torch.arange(0, max_len).unsqueeze(1)
 
-        # broadcast and set even indices to sin  and odd indices to cos
+        # broadcast and set even indices to sin and odd indices to cos
         self.pos_encoding[0, :, 0::2] = torch.sin(pos * div_term)                  # select all rows. Start at column 0 and skip every 2 cols
         self.pos_encoding[0, :, 1::2] = torch.cos(pos * div_term)                  
 
