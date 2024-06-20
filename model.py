@@ -8,10 +8,10 @@ class Transformer(nn.Module):
     def __init__(self, in_dim, out_dim, device, n_heads=8, n_blocks=6, d_model=512, d_ffn=2048, dropout_rate=0.1):
         super().__init__()
         self.d_model = d_model
-        self.class_token = nn.Parameter(torch.zeros(1, 1, d_model))             # Note: model does not patchify like from the original paper: "An Image is Worth 16x16 Words"
-        self.flatten = nn.Flatten()                                             # flatten the input sequence since we are dealing with images
-        self.in_embedding = nn.Embedding(in_dim, d_model)                       # input embedding layer
-        self.positional_encoding = Positional_Encoding(d_model, device)         # input positional encoding for encoder
+        #self.class_token = nn.Parameter(torch.zeros(1, 1, d_model))             # Note: model does not patchify like from the original paper: "An Image is Worth 16x16 Words"
+        #self.flatten = nn.Flatten()                                             # flatten the input sequence since we are dealing with images
+        #self.in_embedding = nn.Embedding(in_dim, d_model)                       # input embedding layer
+        self.positional_encoding = Positional_Encoding(in_dim, d_model, device)         # input positional encoding for encoder
 
         # MLP head from ViT
         self.mlp_head = nn.Linear(d_model, out_dim)                               # linear layer to get output classes
@@ -27,16 +27,14 @@ class Transformer(nn.Module):
         if isinstance(m, nn.Conv2d):
             pass                # TODO: do I need to initialize patch embedding?
             #torch.nn.
-
-    # TODO: append class_token to positional encoding and delete it here.
     
     def forward(self, x, target):                                                       
-        x = self.flatten(x).to(dtype=torch.long, device=x.device)               # converting into another tensor type moves tensor to cpu by default.         
-        class_token = self.class_token.expand(x.size(0), -1, -1)                # make sure there is a class_token for every batch in image
-        embedded_img = self.in_embedding(x) * math.sqrt(self.d_model)           # multiply embeddings by sqrt(d_model) as in paper
-        encoder_in = torch.cat((class_token, embedded_img), dim=1)              # concatenate the class token with the flattened image embedding along num_tokens dimension (dim = 1)
+        #x = self.flatten(x).to(dtype=torch.long, device=x.device)               # converting into another tensor type moves tensor to cpu by default.         
+        #class_token = self.class_token.expand(x.size(0), -1, -1)                # make sure there is a class_token for every batch in image
+        #embedded_img = self.in_embedding(x) * math.sqrt(self.d_model)           # multiply embeddings by sqrt(d_model) as in paper
+        #encoder_in = torch.cat((class_token, embedded_img), dim=1)              # concatenate the class token with the flattened image embedding along num_tokens dimension (dim = 1)
         
-        encoder_in = self.positional_encoding(encoder_in)                       # encoder_in is a (batch_size, seq_len, d_model) tensor
+        encoder_in = self.positional_encoding(x)                       # encoder_in is a (batch_size, seq_len, d_model) tensor
         encoder_output = self.encoder(encoder_in)                               # output = (batch_size, num_tokens, d_model)
 
         # Take out class token and run MLP head only on class token
@@ -171,10 +169,13 @@ class Patch_Embedding(nn.Module):
 class Positional_Encoding(nn.Module):                   
 
     # TODO: for num_channels > 3 do convolution to embed: https://github.com/s-chh/PyTorch-Scratch-Vision-Transformer-ViT-MNIST-CIFAR10/blob/main/model.py   
-    def __init__(self, d_model, device, dropout_rate=0.1, max_len=5000):
+    def __init__(self, in_dim, d_model, device, dropout_rate=0.1, max_len=5000):
         super().__init__()
         self.d_model = d_model
         self.dropout = nn.Dropout(dropout_rate)
+        self.flatten = nn.Flatten() 
+        self.in_embedding = nn.Embedding(in_dim, d_model) 
+        self.class_token = nn.Parameter(torch.zeros(1, 1, d_model)) 
 
         # TODO: DEBUG AND MAKE POSITIONAL EMBEDDING A PARAMETER
 
@@ -191,6 +192,11 @@ class Positional_Encoding(nn.Module):
         self.pos_encoding[0, :, 1::2] = torch.cos(pos * div_term)                 
 
     def forward(self, x):
+        x = self.flatten(x).to(dtype=torch.long, device=x.device)
+        class_token = self.class_token.expand(x.size(0), -1, -1)
+        embedded_img = self.in_embedding(x) * math.sqrt(self.d_model)
+        x = torch.cat((class_token, embedded_img), dim=1)
+
         x = x + self.pos_encoding[:, :x.size(1)]                                   # trim down pos_encoding to size of actual input sequence. dim = (1, num_tokens, d_model)
         x = self.dropout(x)                          
         return x
