@@ -8,9 +8,6 @@ class Transformer(nn.Module):
     def __init__(self, in_dim, out_dim, device, n_heads=8, n_blocks=6, d_model=512, d_ffn=2048, dropout_rate=0.1):
         super().__init__()
         self.d_model = d_model
-        #self.class_token = nn.Parameter(torch.zeros(1, 1, d_model))             # Note: model does not patchify like from the original paper: "An Image is Worth 16x16 Words"
-        #self.flatten = nn.Flatten()                                             # flatten the input sequence since we are dealing with images
-        #self.in_embedding = nn.Embedding(in_dim, d_model)                       # input embedding layer
         self.positional_encoding = Positional_Encoding(in_dim, d_model, device)         # input positional encoding for encoder
 
         # MLP head from ViT
@@ -29,13 +26,8 @@ class Transformer(nn.Module):
             #torch.nn.
     
     def forward(self, x, target):                                                       
-        #x = self.flatten(x).to(dtype=torch.long, device=x.device)               # converting into another tensor type moves tensor to cpu by default.         
-        #class_token = self.class_token.expand(x.size(0), -1, -1)                # make sure there is a class_token for every batch in image
-        #embedded_img = self.in_embedding(x) * math.sqrt(self.d_model)           # multiply embeddings by sqrt(d_model) as in paper
-        #encoder_in = torch.cat((class_token, embedded_img), dim=1)              # concatenate the class token with the flattened image embedding along num_tokens dimension (dim = 1)
-        
         encoder_in = self.positional_encoding(x)                       # encoder_in is a (batch_size, seq_len, d_model) tensor
-        encoder_output = self.encoder(encoder_in)                               # output = (batch_size, num_tokens, d_model)
+        encoder_output = self.encoder(encoder_in)                      # output = (batch_size, num_tokens, d_model)
 
         # Take out class token and run MLP head only on class token
         class_token_learned = encoder_output[:, 0, :]
@@ -166,9 +158,7 @@ class Patch_Embedding(nn.Module):
 
 
 # Followed: https://pytorch.org/tutorials/beginner/transformer_tutorial.html#:~:text=class%20PositionalEncoding(nn.Module)%3A 
-class Positional_Encoding(nn.Module):                   
-
-    # TODO: for num_channels > 3 do convolution to embed: https://github.com/s-chh/PyTorch-Scratch-Vision-Transformer-ViT-MNIST-CIFAR10/blob/main/model.py   
+class Positional_Encoding(nn.Module):                     
     def __init__(self, in_dim, d_model, device, dropout_rate=0.1, max_len=5000):
         super().__init__()
         self.d_model = d_model
@@ -176,9 +166,6 @@ class Positional_Encoding(nn.Module):
         self.flatten = nn.Flatten() 
         self.in_embedding = nn.Embedding(in_dim, d_model) 
         self.class_token = nn.Parameter(torch.zeros(1, 1, d_model)) 
-
-        # TODO: DEBUG AND MAKE POSITIONAL EMBEDDING A PARAMETER
-
         self.pos_encoding = torch.zeros([1, max_len, d_model], device=device)                       # each "word" has encoding of size d_model
 
         # calculate e^(2i * log(n)/d_model) where n = 10000 from original paper and i goes from 0 to d_model/2 because there are d_model PAIRS
@@ -189,13 +176,16 @@ class Positional_Encoding(nn.Module):
 
         # broadcast and set even indices to sin and odd indices to cos
         self.pos_encoding[0, :, 0::2] = torch.sin(pos * div_term)                  # select all rows. Start at column 0 and skip every 2 cols
-        self.pos_encoding[0, :, 1::2] = torch.cos(pos * div_term)                 
+        self.pos_encoding[0, :, 1::2] = torch.cos(pos * div_term)    
+
+        # make positional embedding a parameter so it can be learned
+        self.pos_encoding = nn.Parameter(self.pos_encoding)             
 
     def forward(self, x):
         x = self.flatten(x).to(dtype=torch.long, device=x.device)
         class_token = self.class_token.expand(x.size(0), -1, -1)
         embedded_img = self.in_embedding(x) * math.sqrt(self.d_model)
-        x = torch.cat((class_token, embedded_img), dim=1)
+        x = torch.cat((class_token, embedded_img), dim=1)               # concatenate the class token with the flattened image embedding along num_tokens dimension (dim = 1)
 
         x = x + self.pos_encoding[:, :x.size(1)]                                   # trim down pos_encoding to size of actual input sequence. dim = (1, num_tokens, d_model)
         x = self.dropout(x)                          

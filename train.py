@@ -10,7 +10,7 @@ from utils import TransformerScheduler
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID" 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2'
-gpu_number = 1
+gpu_number = 0
 
 def main():
     # Using CIFAR 10 for the data
