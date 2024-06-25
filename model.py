@@ -8,7 +8,7 @@ class Transformer(nn.Module):
     def __init__(self, img_side_len, patch_size, n_channels, num_classes, device, n_heads=8, n_blocks=6, embed_dim=512, d_ffn=2048, dropout_rate=0.1):
         super().__init__()
         self.embed_dim = embed_dim
-        self.positional_encoding = Patch_Embedding(img_side_len, patch_size, n_channels, embed_dim, device, dropout_rate) #Positional_Encoding(in_dim, embed_dim, device)         # input positional encoding for encoder
+        self.positional_encoding = Patch_Embedding(img_side_len, patch_size, n_channels, embed_dim, device, dropout_rate)           #Positional_Encoding(in_dim, embed_dim, device)  
 
         # MLP head from ViT applied to class token
         self.mlp_head = nn.Linear(embed_dim, num_classes)          # linear layer to get output classes

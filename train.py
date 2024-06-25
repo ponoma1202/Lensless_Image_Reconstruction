@@ -11,22 +11,24 @@ from utils import TransformerScheduler
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID" 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2'
-gpu_number = 0
+gpu_number = 1
 
 def main():
     # Using CIFAR 10 for the data
-    debug = False
+    debug = True
 
     batch_size = 64
-    num_epochs = 100
-    learning_rate = 1e-5
+    num_epochs = 200
+    learning_rate = 5e-5
     num_classes = 10
     num_heads = 4
     num_blocks = 6
-    embed_dim = 1024               # dimension of embedding/hidden layer in Transformer
+    embed_dim = 1024           # dimension of embedding/hidden layer in Transformer
     patch_size = 4
     n_channels = 1
-    use_scheduler = False
+    #in_dim = 256                        # Number of embeddings in input sequence (size of input vocabulary). Pixels have range [0, 255] (for positional embedding)
+    img_side_len = 32
+    use_scheduler = True
     save_path = './checkpoint/model.pth'
     class_names = ['plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']      # For confusion matrix
     if not debug:
@@ -38,7 +40,7 @@ def main():
                                                         "classes":num_classes,
                                                         "num_heads":num_heads,
                                                         "num_encoder_layers": num_blocks,
-                                                        "use_scheduluer":use_scheduler,
+                                                        "use_scheduler":use_scheduler,
                                                         "embed_dim":embed_dim,
                                                         "patch_size": patch_size,
                                                         "n_channels": n_channels})
@@ -58,9 +60,6 @@ def main():
 
     testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=False, transform=transform)
     testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False)
-
-    #in_dim = 256                        # Number of embeddings in input sequence (size of input vocabulary). Pixels have range [0, 255] (for positional embedding)
-    img_side_len = 32
 
     # See if gpu is available
     if torch.cuda.is_available():
@@ -97,7 +96,7 @@ def train(model, trainloader, testloader, optimizer, criterion, num_epochs, devi
         if not debug:
             wandb.log({"training_accuracy":train_accuracy, "training_loss":train_loss, "validation_acc":val_acc, "validation_loss":val_loss, "epoch":epoch, "learning rate":optimizer.param_groups[-1]['lr']})
     if scheduler != None:
-        scheduler.step()
+        scheduler.step(val_loss)
     torch.save(model.state_dict(), save_path)
         
 
