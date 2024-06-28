@@ -24,7 +24,7 @@ class Transformer(nn.Module):
         self.encoder = Encoder(d_model, d_ffn, n_heads, n_blocks, dropout_rate, device)                      # Note: when creating new tensors, need to specify device they are created on (go on cpu by default)
         self.decoder = Decoder(d_model, d_ffn, n_heads, n_blocks, dropout_rate, device)
     
-    # TODO: ISSUE - passing in the target is better for sequence generation (language translation). For classification, model starts using the target for prediction directly and doesn't actually "learn" the weights
+    # Note - passing in the target is better for sequence generation (language translation). For classification, model starts using the target for prediction directly and doesn't actually "learn" the weights
 
     def forward(self, x, target):
         x = self.flatten(x).to(dtype=torch.long, device=x.device)                 # converting into another tensor type moves tensor to cpu by default.         

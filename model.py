@@ -8,7 +8,7 @@ class Transformer(nn.Module):
     def __init__(self, img_side_len, patch_size, n_channels, num_classes, device, n_heads=8, n_blocks=6, embed_dim=512, d_ffn=2048, dropout_rate=0.1):
         super().__init__()
         self.embed_dim = embed_dim
-        self.positional_encoding = Patch_Embedding(img_side_len, patch_size, n_channels, embed_dim, device, dropout_rate)           #Positional_Encoding(in_dim, embed_dim, device)  
+        self.positional_encoding = Patch_Embedding(img_side_len, patch_size, n_channels, embed_dim, device, dropout_rate=0.0)           #Positional_Encoding(in_dim, embed_dim, device)  
 
         # MLP head from ViT applied to class token
         self.mlp_head = nn.Linear(embed_dim, num_classes)          # linear layer to get output classes
@@ -90,6 +90,8 @@ class Multi_Headed_Attention(nn.Module):
         self.Wv = nn.Linear(embed_dim, embed_dim)
         self.attention = Self_Attention(device)
 
+        # TODO: simple network has another linear layer after this
+
     def forward(self, x, is_masked=False):
         q = self.Wq(x)      # dimensions = (batch_size, seq_len, embed_dim) for Q, K, V
         k = self.Wk(x)
@@ -120,19 +122,18 @@ class Self_Attention(nn.Module):        # q and k have dim (d_v, d_k)
         self.device = device      
 
     def forward(self, q, k, v, is_masked, padding=0):
-        d_k = q.size(-1)                # get last dimension of q (should be d_k)
-        padding = padding                                                                            
+        d_k = q.size(-1)                # get last dimension of q (should be d_k)                                                                            
         attention_weights = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(d_k)       # want last two dimensions to get swapped
         
-        # source/padding mask. Safer to make this into a boolean mask rather than rounding so that numbers won't accidentally be rounded to 0
-        mask = attention_weights != padding                                                                # make sure padding values are not considered in softmax
+        # # source/padding mask. Safer to make this into a boolean mask rather than rounding so that numbers won't accidentally be rounded to 0
+        # mask = attention_weights != padding      # make sure padding values are not considered in softmax
 
-        # target mask (for decoder)
-        if is_masked:                       
-            # combine padding and target mask. Should have dimensions (target_sequence_len, target_sequence_len)
-            mask = torch.tril(torch.ones([1, attention_weights.size(-1), attention_weights.size(-1)], device=self.device)).bool() & mask    # target sequence length for dim = -1 should be the same as dim = -2   
+        # # target mask (for decoder)
+        # if is_masked:                       
+        #     # combine padding and target mask. Should have dimensions (target_sequence_len, target_sequence_len)
+        #     mask = torch.tril(torch.ones([1, attention_weights.size(-1), attention_weights.size(-1)], device=self.device)).bool() & mask    # target sequence length for dim = -1 should be the same as dim = -2   
         
-        attention_weights = attention_weights.masked_fill(mask == 0, -1e9)                                  # set all values we want to ignore to -infinity
+        # attention_weights = attention_weights.masked_fill(mask == 0, -1e9)                                  # set all values we want to ignore to -infinity
         
         probabilities = torch.softmax(attention_weights, dim=-1)                                            # gets the probabilities along last dimension. For 2d the result of softmax is a (d_v, 1) vector.
         return torch.matmul(probabilities, v)  

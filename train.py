@@ -7,11 +7,12 @@ import wandb
 
 from model import Transformer
 from utils import Rescale
-from utils import TransformerScheduler
+from sklearn.metrics import accuracy_score
+#from utils import TransformerScheduler
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID" 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2'
-gpu_number = 1
+gpu_number = 0
 
 def main():
     # Using CIFAR 10 for the data
@@ -76,7 +77,12 @@ def main():
     criterion = torch.nn.CrossEntropyLoss()
     scheduler = None
     if use_scheduler:
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer) 
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 
+                                                 mode='min', 
+                                                 factor=0.5, 
+                                                 patience=5, 
+                                                 threshold=1e-4, 
+                                                 min_lr=1e-7) 
         #scheduler = TransformerScheduler(optimizer, embed_dim)
 
     if not os.path.exists(save_path):          
@@ -91,10 +97,10 @@ def main():
 def train(model, trainloader, testloader, optimizer, criterion, num_epochs, device, save_path, class_names, scheduler, debug):
     for epoch in range(num_epochs):
         print(f'Start training epoch {epoch+1}/{num_epochs}...')
-        train_accuracy, train_loss = train_epoch(model, epoch, num_epochs, trainloader, optimizer, criterion, device) 
-        val_acc, val_loss = validate(model, testloader, criterion, device, save_path, class_names, debug)
+        #train_accuracy, train_loss = train_epoch(model, epoch, num_epochs, trainloader, optimizer, criterion, device) 
+        sklearn_acc, val_acc, val_loss = validate(model, testloader, criterion, device, save_path, class_names, debug)
         if not debug:
-            wandb.log({"training_accuracy":train_accuracy, "training_loss":train_loss, "validation_acc":val_acc, "validation_loss":val_loss, "epoch":epoch, "learning rate":optimizer.param_groups[-1]['lr']})
+            wandb.log({"training_accuracy":train_accuracy, "training_loss":train_loss, "validation_acc":val_acc, "sklearn_val_accuracy": sklearn_acc, "validation_loss":val_loss, "epoch":epoch, "learning rate":optimizer.param_groups[-1]['lr']})
     if scheduler != None:
         scheduler.step(val_loss)
     torch.save(model.state_dict(), save_path)
@@ -154,9 +160,10 @@ def validate(model, testloader, criterion, device, save_path, class_names, debug
                             y_true=all_targets, preds=all_preds,
                             class_names=class_names)})
         accuracy = total_correct/len(testloader.dataset)
+        sklearn_acc = accuracy_score(all_targets, all_preds)
         avg_loss = total_loss/len(testloader.dataset)
         print(f'Validation Loss: {avg_loss}, Validation Accuracy: {accuracy} \n')
-        return accuracy, avg_loss
+        return sklearn_acc, accuracy, avg_loss
     
 
 if __name__ == "__main__":
