@@ -5,25 +5,17 @@ import math
 # based on https://github.com/brandokoch/attention-is-all-you-need-paper/tree/master and pytorch tutorial
 
 class Transformer(nn.Module):
-    def __init__(self, img_side_len, patch_size, n_channels, num_classes, device, n_heads=8, n_blocks=6, embed_dim=512, d_ffn=2048, dropout_rate=0.1):
+    def __init__(self, img_side_len, patch_size, n_channels, num_classes, n_heads=8, n_blocks=6, embed_dim=512, ffn_multiplier=4, dropout_rate=0.1):
         super().__init__()
         self.embed_dim = embed_dim
-        self.positional_encoding = Patch_Embedding(img_side_len, patch_size, n_channels, embed_dim, device, dropout_rate=0.0)           #Positional_Encoding(in_dim, embed_dim, device)  
+        self.positional_encoding = Patch_Embedding(img_side_len, patch_size, n_channels, embed_dim, dropout_rate=0.0)           #Positional_Encoding(in_dim, embed_dim, device)  
 
         # MLP head from ViT applied to class token
         self.mlp_head = nn.Linear(embed_dim, num_classes)          # linear layer to get output classes
         self.tanh = nn.Tanh()                              
 
-        self.encoder = Encoder(embed_dim, d_ffn, n_heads, n_blocks, dropout_rate, device)
-        self.apply(self.init_weights)
-
-    # Initialize weights to very small numbers close to 0, instead of pytorch's default initalization. 
-    def init_weights(self, m):
-        if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
-            torch.nn.init.normal_(m.weight, std=0.001)
-        if isinstance(m, Patch_Embedding):
-            torch.nn.init.trunc_normal_(m.class_token, mean=0.0, std=0.02)       # taken from https://github.com/s-chh/PyTorch-Scratch-Vision-Transformer-ViT-MNIST-CIFAR10/blob/main/model.py 
-            torch.nn.init.trunc_normal_(m.pos_encoding, mean=0.0, std=0.02)
+        self.encoder = Encoder(embed_dim, ffn_multiplier, n_heads, n_blocks, dropout_rate)
+        self.apply(init_weights)
     
     def forward(self, x, target):                                                       
         encoder_in = self.positional_encoding(x)         # (batch_size, seq_len, embed_dim) tensor
@@ -31,16 +23,32 @@ class Transformer(nn.Module):
 
         # Take out class token and run MLP head only on class token
         class_token_learned = encoder_output[:, 0, :]
-        class_token_learned = self.tanh(class_token_learned)
-        output = self.mlp_head(class_token_learned)     
-        return output
+        class_token_learned = self.mlp_head(class_token_learned) 
+        class_token_learned = self.tanh(class_token_learned)     
+        return class_token_learned
+    
+# Initialize weights to very small numbers close to 0, instead of pytorch's default initalization. 
+def init_weights(m):
+    if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
+        # torch.nn.init.normal_(m.weight, std=0.001)
+        nn.init.trunc_normal_(m.weight, mean=0.0, std=0.02)
+        if m.bias is not None:
+            nn.init.constant_(m.bias, 0)
+
+    elif isinstance(m, nn.LayerNorm):
+        nn.init.constant_(m.weight, 1)
+        nn.init.constant_(m.bias, 0) 
+
+    elif isinstance(m, Patch_Embedding):
+        torch.nn.init.trunc_normal_(m.class_token, mean=0.0, std=0.02)       # taken from https://github.com/s-chh/PyTorch-Scratch-Vision-Transformer-ViT-MNIST-CIFAR10/blob/main/model.py 
+        torch.nn.init.trunc_normal_(m.pos_encoding, mean=0.0, std=0.02)
     
 # list of all encoder blocks
 class Encoder(nn.Module):
-    def __init__(self, embed_dim, d_ffn, n_heads, n_blocks, dropout_rate, device):
+    def __init__(self, embed_dim, ffn_multiplier, n_heads, n_blocks, dropout_rate):
         super().__init__()
 
-        self.encoder_layers = nn.ModuleList([Encoder_Block(embed_dim, d_ffn, n_heads, dropout_rate, device) for _ in range(n_blocks)])
+        self.encoder_layers = nn.ModuleList([Encoder_Block(embed_dim, ffn_multiplier, n_heads, dropout_rate) for _ in range(n_blocks)])
 
     def forward(self, x):
         for encoder_layer in self.encoder_layers:
@@ -49,35 +57,27 @@ class Encoder(nn.Module):
     
 # list of all decoder blocks
 class Encoder_Block(nn.Module):
-    def __init__(self, embed_dim, d_ffn, n_heads, dropout_rate, device):
+    def __init__(self, embed_dim, ffn_multiplier, n_heads, dropout_rate):
         super().__init__()
-        embed_dim = embed_dim
-        d_ffn = d_ffn                 # feed forward network layer dim ~ 4 times the size of embed_dim
-        dropout_rate = dropout_rate
 
-        self.attention = Multi_Headed_Attention(n_heads, embed_dim, device)    
+        self.attention = Multi_Headed_Attention(n_heads, embed_dim)    
         self.dropout1 = nn.Dropout(dropout_rate)
-        self.add_and_norm1 = Add_and_Norm(embed_dim)     
+        self.norm1 = nn.LayerNorm(embed_dim)     
 
-        self.ffn = Position_wise_ffn(embed_dim, d_ffn)        # output has dim embed_dim
+        self.ffn = Position_wise_ffn(embed_dim, ffn_multiplier)        # transformer paper has multiplier = 4, simplified model has 2
         self.dropout2 = nn.Dropout(dropout_rate)
-        self.add_and_norm2 = Add_and_Norm(embed_dim)
+        self.norm2 = nn.LayerNorm(embed_dim)
 
     def forward(self, x):
-        attention_layer = self.attention(x)
-        attention_layer = self.dropout1(attention_layer) 
-        x = self.add_and_norm1(attention_layer, x)       # x is original input embedding
-
-        ffn = self.ffn(x)
-        ffn = self.dropout2(ffn)
-        ffn = self.add_and_norm2(x, ffn)
-        return ffn
+        x = x + self.dropout1(self.attention(self.norm1(x)))        # now most people do residual after dropout + attention
+        x = x + self.dropout2(self.ffn(self.norm2(x)))
+        return x
     
 
 ### Helper classes ###
 
 class Multi_Headed_Attention(nn.Module):
-    def __init__(self, n_heads, embed_dim, device):
+    def __init__(self, n_heads, embed_dim):
         super().__init__()
         self.n_heads = n_heads
 
@@ -88,11 +88,10 @@ class Multi_Headed_Attention(nn.Module):
         self.Wq = nn.Linear(embed_dim, embed_dim)     
         self.Wk = nn.Linear(embed_dim, embed_dim)     
         self.Wv = nn.Linear(embed_dim, embed_dim)
-        self.attention = Self_Attention(device)
 
-        # TODO: simple network has another linear layer after this
+        self.projection = nn.Linear(embed_dim, embed_dim)
 
-    def forward(self, x, is_masked=False):
+    def forward(self, x):
         q = self.Wq(x)      # dimensions = (batch_size, seq_len, embed_dim) for Q, K, V
         k = self.Wk(x)
         v = self.Wv(x)
@@ -107,42 +106,22 @@ class Multi_Headed_Attention(nn.Module):
         k = k.transpose(1, 2)
         v = v.transpose(1, 2)
 
-        # 3 - pass into self-attention layer
-        output = self.attention(q, k, v, is_masked)
+        # 3 - Do self-attention                                                                           
+        attention_weights = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(q.size(-1))       # want last two dimensions to get swapped
+        probabilities = torch.softmax(attention_weights, dim=-1)         # gets the probabilities along last dimension. For 2d the result of softmax is a (d_v, 1) vector.
+        output = torch.matmul(probabilities, v) 
 
         # 4 - Reverse step 2 then concatenate heads
         output = output.transpose(1, 2).contiguous()            # Need contiguous because .view() changes the way the tensor is stored (not stored consecutively in memory anymore)
         output = output.view(output.size(0), -1, self.d_key * self.n_heads)
-        return output
-
-
-class Self_Attention(nn.Module):        # q and k have dim (d_v, d_k)
-    def __init__(self, device):
-        super().__init__()  
-        self.device = device      
-
-    def forward(self, q, k, v, is_masked, padding=0):
-        d_k = q.size(-1)                # get last dimension of q (should be d_k)                                                                            
-        attention_weights = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(d_k)       # want last two dimensions to get swapped
-        
-        # # source/padding mask. Safer to make this into a boolean mask rather than rounding so that numbers won't accidentally be rounded to 0
-        # mask = attention_weights != padding      # make sure padding values are not considered in softmax
-
-        # # target mask (for decoder)
-        # if is_masked:                       
-        #     # combine padding and target mask. Should have dimensions (target_sequence_len, target_sequence_len)
-        #     mask = torch.tril(torch.ones([1, attention_weights.size(-1), attention_weights.size(-1)], device=self.device)).bool() & mask    # target sequence length for dim = -1 should be the same as dim = -2   
-        
-        # attention_weights = attention_weights.masked_fill(mask == 0, -1e9)                                  # set all values we want to ignore to -infinity
-        
-        probabilities = torch.softmax(attention_weights, dim=-1)                                            # gets the probabilities along last dimension. For 2d the result of softmax is a (d_v, 1) vector.
-        return torch.matmul(probabilities, v)  
+        output = self.projection(output)
+        return output  
 
 
 # separate image into patches and do positional embedding + patch embedding for ViT
 # Followed: 
 class Patch_Embedding(nn.Module):
-    def __init__(self, img_side_len, patch_size, n_channels, embed_dim, device, dropout_rate=0.1):
+    def __init__(self, img_side_len, patch_size, n_channels, embed_dim, dropout_rate=0.1):
         super().__init__()
         self.patch_size = patch_size
         self.embed_dim = embed_dim          # same as embedding dimension 
@@ -203,10 +182,10 @@ class Positional_Encoding(nn.Module):
 
 # called "position wise" because it already includes positional embeddings from previous layers
 class Position_wise_ffn(nn.Module):                           # 2 fully connected dense layers  https://medium.com/@hunter-j-phillips/position-wise-feed-forward-network-ffn-d4cc9e997b4c 
-    def __init__(self, embed_dim, d_ffn):                       # feed forward just means no recurrent relations
+    def __init__(self, embed_dim, ffn_multiplier):                       # feed forward just means no recurrent relations
         super().__init__()
-        self.linear1 = nn.Linear(embed_dim, d_ffn)
-        self.linear2 = nn.Linear(d_ffn, embed_dim)
+        self.linear1 = nn.Linear(embed_dim, embed_dim * ffn_multiplier)
+        self.linear2 = nn.Linear(embed_dim * ffn_multiplier, embed_dim)
         self.gelu = nn.GELU()
     
     def forward(self, x):

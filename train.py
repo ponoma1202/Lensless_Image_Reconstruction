@@ -7,8 +7,6 @@ import wandb
 
 from model import Transformer
 from utils import Rescale
-from sklearn.metrics import accuracy_score
-#from utils import TransformerScheduler
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID" 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2'
@@ -16,20 +14,20 @@ gpu_number = 0
 
 def main():
     # Using CIFAR 10 for the data
-    debug = True
+    debug = False
 
     batch_size = 64
     num_epochs = 200
-    learning_rate = 5e-5
+    learning_rate = 5e-4
     num_classes = 10
     num_heads = 4
     num_blocks = 6
-    embed_dim = 1024           # dimension of embedding/hidden layer in Transformer
+    embed_dim = 64 #1024           # dimension of embedding/hidden layer in Transformer
     patch_size = 4
     n_channels = 1
-    #in_dim = 256                        # Number of embeddings in input sequence (size of input vocabulary). Pixels have range [0, 255] (for positional embedding)
+    warmup_epochs = 10
+    ffn_multiplier = 2
     img_side_len = 32
-    use_scheduler = True
     save_path = './checkpoint/model.pth'
     class_names = ['plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']      # For confusion matrix
     if not debug:
@@ -41,10 +39,11 @@ def main():
                                                         "classes":num_classes,
                                                         "num_heads":num_heads,
                                                         "num_encoder_layers": num_blocks,
-                                                        "use_scheduler":use_scheduler,
                                                         "embed_dim":embed_dim,
                                                         "patch_size": patch_size,
-                                                        "n_channels": n_channels})
+                                                        "n_channels": n_channels,
+                                                        "warmup_epochs":warmup_epochs,
+                                                        "ffn_multiplier": ffn_multiplier})
     
     transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),                  # issue: scales image to [0,1] range          
                                                 # do not want to center around 0. center around mean instead to avoid negative values (for embedding)
@@ -70,39 +69,43 @@ def main():
         device = torch.device("cpu")
     
     # Initialize model and move to GPU if available
-    model = Transformer(img_side_len, patch_size, n_channels, num_classes, device, num_heads, num_blocks, embed_dim)
+    model = Transformer(img_side_len, patch_size, n_channels, num_classes, num_heads, num_blocks, embed_dim, ffn_multiplier)
     model.to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)           
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-3) 
+    #optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)          
     criterion = torch.nn.CrossEntropyLoss()
-    scheduler = None
-    if use_scheduler:
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 
-                                                 mode='min', 
-                                                 factor=0.5, 
-                                                 patience=5, 
-                                                 threshold=1e-4, 
-                                                 min_lr=1e-7) 
-        #scheduler = TransformerScheduler(optimizer, embed_dim)
 
     if not os.path.exists(save_path):          
         os.mkdir(save_path)
 
-    train(model, trainloader, testloader, optimizer, criterion, num_epochs, device, save_path, class_names, scheduler, debug)
+    train(model, trainloader, testloader, optimizer, criterion, num_epochs, device, save_path, class_names, debug, warmup_epochs)
     if not debug:
         run.finish()
 
 
 # Includes both training and validation
-def train(model, trainloader, testloader, optimizer, criterion, num_epochs, device, save_path, class_names, scheduler, debug):
+def train(model, trainloader, testloader, optimizer, criterion, num_epochs, device, save_path, class_names, debug, warmup_epochs):
+    linear_warmup = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1/warmup_epochs, end_factor=1.0, total_iters=warmup_epochs-1, last_epoch=-1)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=num_epochs-warmup_epochs, eta_min=1e-5)
+    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 
+    #                                          mode='min', 
+    #                                          factor=0.5, 
+    #                                          patience=5, 
+    #                                          threshold=1e-4, 
+    #                                          min_lr=1e-7) 
+
     for epoch in range(num_epochs):
         print(f'Start training epoch {epoch+1}/{num_epochs}...')
-        #train_accuracy, train_loss = train_epoch(model, epoch, num_epochs, trainloader, optimizer, criterion, device) 
-        sklearn_acc, val_acc, val_loss = validate(model, testloader, criterion, device, save_path, class_names, debug)
+        train_accuracy, train_loss = train_epoch(model, epoch, num_epochs, trainloader, optimizer, criterion, device) 
+        val_acc, val_loss = validate(model, testloader, criterion, device, save_path, class_names, debug)
         if not debug:
-            wandb.log({"training_accuracy":train_accuracy, "training_loss":train_loss, "validation_acc":val_acc, "sklearn_val_accuracy": sklearn_acc, "validation_loss":val_loss, "epoch":epoch, "learning rate":optimizer.param_groups[-1]['lr']})
-    if scheduler != None:
-        scheduler.step(val_loss)
+            wandb.log({"training_accuracy":train_accuracy, "training_loss":train_loss, "validation_acc":val_acc, "validation_loss":val_loss, "epoch":epoch, "learning rate":optimizer.param_groups[-1]['lr']})
+        #scheduler.step(val_loss.item())         #val_loss is a tensor so need to get the number
+        if epoch < warmup_epochs:
+            linear_warmup.step()
+        else:
+            scheduler.step()
     torch.save(model.state_dict(), save_path)
         
 
@@ -160,10 +163,9 @@ def validate(model, testloader, criterion, device, save_path, class_names, debug
                             y_true=all_targets, preds=all_preds,
                             class_names=class_names)})
         accuracy = total_correct/len(testloader.dataset)
-        sklearn_acc = accuracy_score(all_targets, all_preds)
         avg_loss = total_loss/len(testloader.dataset)
         print(f'Validation Loss: {avg_loss}, Validation Accuracy: {accuracy} \n')
-        return sklearn_acc, accuracy, avg_loss
+        return accuracy, avg_loss
     
 
 if __name__ == "__main__":
