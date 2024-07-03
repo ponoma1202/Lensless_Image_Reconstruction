@@ -12,8 +12,9 @@ class Transformer(nn.Module):
         #self.positional_encoding = Positional_Encoding(img_side_len*img_side_len, embed_dim, dropout_rate)
 
         # MLP head from ViT applied to class token
-        self.mlp_head = nn.Linear(embed_dim, num_classes)          # linear layer to get output classes
-        self.tanh = nn.Tanh()                              
+        self.linear1 = nn.Linear(embed_dim, embed_dim)          # linear layer to get output classes
+        self.tanh = nn.Tanh() 
+        self.linear2 = nn.Linear(embed_dim, num_classes)                             
 
         self.encoder = Encoder(embed_dim, ffn_multiplier, n_heads, n_blocks, dropout_rate)
         self.apply(init_weights)
@@ -22,10 +23,11 @@ class Transformer(nn.Module):
         encoder_in = self.positional_encoding(x)         # (batch_size, seq_len, embed_dim) tensor
         encoder_output = self.encoder(encoder_in)        # output = (batch_size, num_tokens, embed_dim)
 
-        # Take out class token and run MLP head only on class token
+        # Extract class token
         class_token_learned = encoder_output[:, 0, :]
-        class_token_learned = self.mlp_head(class_token_learned) 
-        class_token_learned = self.tanh(class_token_learned)     
+
+        # MLP head
+        class_token_learned = self.linear2(self.tanh(self.linear1(class_token_learned))) 
         return class_token_learned
     
 # Initialize weights to very small numbers close to 0, instead of pytorch's default initalization. 
@@ -156,7 +158,7 @@ class Positional_Encoding(nn.Module):
         self.flatten = nn.Flatten() 
         self.in_embedding = nn.Embedding(in_dim, embed_dim) 
         self.class_token = nn.Parameter(torch.zeros(1, 1, embed_dim)) 
-        self.pos_encoding = torch.zeros([1, max_len, embed_dim], device=device)                       # each "word" has encoding of size embed_dim
+        self.pos_encoding = torch.zeros([1, max_len, embed_dim], device=device)         # TODO: fix this                     # each "word" has encoding of size embed_dim
 
         # calculate e^(2i * log(n)/embed_dim) where n = 10000 from original paper and i goes from 0 to embed_dim/2 because there are embed_dim PAIRS
         div_term = torch.exp(torch.arange(0, embed_dim, 2) * -(math.log(torch.tensor(10000.0)) / embed_dim))  
