@@ -8,7 +8,8 @@ class Transformer(nn.Module):
     def __init__(self, img_side_len, patch_size, n_channels, num_classes, n_heads=8, n_blocks=6, embed_dim=512, ffn_multiplier=4, dropout_rate=0.1):
         super().__init__()
         self.embed_dim = embed_dim
-        self.positional_encoding = Patch_Embedding(img_side_len, patch_size, n_channels, embed_dim, dropout_rate=0.0)           #Positional_Encoding(in_dim, embed_dim, device)  
+        self.positional_encoding = Patch_Embedding(img_side_len, patch_size, n_channels, embed_dim, dropout_rate=0.0)          
+        #self.positional_encoding = Positional_Encoding(img_side_len*img_side_len, embed_dim, dropout_rate)
 
         # MLP head from ViT applied to class token
         self.mlp_head = nn.Linear(embed_dim, num_classes)          # linear layer to get output classes
@@ -39,7 +40,7 @@ def init_weights(m):
         nn.init.constant_(m.weight, 1)
         nn.init.constant_(m.bias, 0) 
 
-    elif isinstance(m, Patch_Embedding):
+    elif isinstance(m, Patch_Embedding) or isinstance(m, Positional_Encoding):
         torch.nn.init.trunc_normal_(m.class_token, mean=0.0, std=0.02)       # taken from https://github.com/s-chh/PyTorch-Scratch-Vision-Transformer-ViT-MNIST-CIFAR10/blob/main/model.py 
         torch.nn.init.trunc_normal_(m.pos_encoding, mean=0.0, std=0.02)
     
@@ -148,7 +149,7 @@ class Patch_Embedding(nn.Module):
 
 # Followed: https://pytorch.org/tutorials/beginner/transformer_tutorial.html#:~:text=class%20PositionalEncoding(nn.Module)%3A 
 class Positional_Encoding(nn.Module):                     
-    def __init__(self, in_dim, embed_dim, device, dropout_rate=0.1, max_len=5000):
+    def __init__(self, in_dim, embed_dim, dropout_rate=0.1, max_len=5000):
         super().__init__()
         self.embed_dim = embed_dim
         self.dropout = nn.Dropout(dropout_rate)

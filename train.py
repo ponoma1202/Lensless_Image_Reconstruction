@@ -57,18 +57,22 @@ def main():
     #                                             #torchvision.transforms.Grayscale(),])
     #                                             #Rescale()])      # resolve scaling issue from ToTensor (embedding only takes in ints, so we need [0, 255] range)      
 
-    transform = torchvision.transforms.Compose([transforms.Resize([img_side_len, img_side_len]),
+    train_transform = torchvision.transforms.Compose([transforms.Resize([img_side_len, img_side_len]),
                                             transforms.RandomCrop(img_side_len, padding=4), 
                                             transforms.RandomHorizontalFlip(),
                                             transforms.RandAugment(),  # RandAugment augmentation for strong regularization
                                             transforms.ToTensor(), 
                                             transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2470, 0.2435, 0.2616])])                     
 
-    trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=False, transform=transform)
+    test_transform = torchvision.transforms.Compose([transforms.Resize([img_side_len, img_side_len]),
+                                                     transforms.ToTensor(),
+                                                     transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2470, 0.2435, 0.2616])])
+
+    trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=False, transform=train_transform)
     
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True)
 
-    testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=False, transform=transform)
+    testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=False, transform=test_transform)
     testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False)
 
     # See if gpu is available
@@ -79,8 +83,8 @@ def main():
         device = torch.device("cpu")
     
     # Initialize model and move to GPU if available
-    #model = Transformer(img_side_len, patch_size, n_channels, num_classes, num_heads, num_blocks, embed_dim, ffn_multiplier, dropout_rate)
-    model = VisionTransformer(n_channels, embed_dim, num_blocks, num_heads, ffn_multiplier, img_side_len, patch_size, num_classes, dropout_rate)
+    model = Transformer(img_side_len, patch_size, n_channels, num_classes, num_heads, num_blocks, embed_dim, ffn_multiplier, dropout_rate)
+    #model = VisionTransformer(n_channels, embed_dim, num_blocks, num_heads, ffn_multiplier, img_side_len, patch_size, num_classes, dropout_rate)
     model.to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-3) 
