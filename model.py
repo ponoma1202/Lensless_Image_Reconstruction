@@ -17,7 +17,7 @@ class Transformer(nn.Module):
         self.encoder = Encoder(embed_dim, ffn_multiplier, n_heads, n_blocks, dropout_rate)
         self.apply(init_weights)
     
-    def forward(self, x, target):                                                       
+    def forward(self, x):                                                       
         encoder_in = self.positional_encoding(x)         # (batch_size, seq_len, embed_dim) tensor
         encoder_output = self.encoder(encoder_in)        # output = (batch_size, num_tokens, embed_dim)
 
@@ -193,11 +193,3 @@ class Position_wise_ffn(nn.Module):                           # 2 fully connecte
         x = self.gelu(x)
         x = self.linear2(x)
         return x    
-
-class Add_and_Norm(nn.Module):
-    def __init__(self, embed_dim):
-        super().__init__()
-        self.norm = nn.LayerNorm(embed_dim)
-
-    def forward(self, input, output):
-        return self.norm(input + output)

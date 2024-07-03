@@ -6,6 +6,7 @@ import os
 import wandb
 
 from model import Transformer
+from other_model import VisionTransformer
 from utils import Rescale
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID" 
@@ -16,18 +17,19 @@ def main():
     # Using CIFAR 10 for the data
     debug = False
 
-    batch_size = 64
+    batch_size = 128
     num_epochs = 200
     learning_rate = 5e-4
     num_classes = 10
     num_heads = 4
     num_blocks = 6
-    embed_dim = 64 #1024           # dimension of embedding/hidden layer in Transformer
+    embed_dim = 128            # dimension of embedding/hidden layer in Transformer
     patch_size = 4
-    n_channels = 1
+    n_channels = 3
     warmup_epochs = 10
     ffn_multiplier = 2
     img_side_len = 32
+    dropout_rate = 0.1
     save_path = './checkpoint/model.pth'
     class_names = ['plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']      # For confusion matrix
     if not debug:
@@ -43,17 +45,25 @@ def main():
                                                         "patch_size": patch_size,
                                                         "n_channels": n_channels,
                                                         "warmup_epochs":warmup_epochs,
-                                                        "ffn_multiplier": ffn_multiplier})
+                                                        "ffn_multiplier": ffn_multiplier, 
+                                                        "dropout_rate": dropout_rate})
     
-    transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),                  # issue: scales image to [0,1] range          
-                                                # do not want to center around 0. center around mean instead to avoid negative values (for embedding)
-                                                torchvision.transforms.Normalize((0, 0, 0), (0.247, 0.243, 0.261)),       # from https://github.com/kuangliu/pytorch-cifar/issues/19  
-                                                torchvision.transforms.RandomRotation(45),
-                                                torchvision.transforms.RandomHorizontalFlip(),
-                                                torchvision.transforms.RandomVerticalFlip(),
-                                                torchvision.transforms.Grayscale(), 
-                                                Rescale()])      # resolve scaling issue from ToTensor (embedding only takes in ints, so we need [0, 255] range)      
-                                        
+    # transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),                  # issue: scales image to [0,1] range          
+    #                                             # do not want to center around 0. center around mean instead to avoid negative values (for embedding)
+    #                                             torchvision.transforms.RandomRotation(45),
+    #                                             torchvision.transforms.RandomHorizontalFlip(),
+    #                                             torchvision.transforms.RandomVerticalFlip(),
+    #                                             torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261)),])       # from https://github.com/kuangliu/pytorch-cifar/issues/19  
+    #                                             #torchvision.transforms.Grayscale(),])
+    #                                             #Rescale()])      # resolve scaling issue from ToTensor (embedding only takes in ints, so we need [0, 255] range)      
+
+    transform = torchvision.transforms.Compose([transforms.Resize([img_side_len, img_side_len]),
+                                            transforms.RandomCrop(img_side_len, padding=4), 
+                                            transforms.RandomHorizontalFlip(),
+                                            transforms.RandAugment(),  # RandAugment augmentation for strong regularization
+                                            transforms.ToTensor(), 
+                                            transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2470, 0.2435, 0.2616])])                     
+
     trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=False, transform=transform)
     
     trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True)
@@ -69,7 +79,8 @@ def main():
         device = torch.device("cpu")
     
     # Initialize model and move to GPU if available
-    model = Transformer(img_side_len, patch_size, n_channels, num_classes, num_heads, num_blocks, embed_dim, ffn_multiplier)
+    #model = Transformer(img_side_len, patch_size, n_channels, num_classes, num_heads, num_blocks, embed_dim, ffn_multiplier, dropout_rate)
+    model = VisionTransformer(n_channels, embed_dim, num_blocks, num_heads, ffn_multiplier, img_side_len, patch_size, num_classes, dropout_rate)
     model.to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-3) 
@@ -117,7 +128,8 @@ def train_epoch(model, epoch, num_epochs, trainloader, optimizer, criterion, dev
     for step, batch in enumerate(tqdm(trainloader)):
         input, target = batch
         input, target = input.to(device), target.to(device)
-        output = model(input, target)                                                    # result is a (num_classes, batch_size) tensor
+        #output = model(input, target)   
+        output = model(input)                                                 # result is a (num_classes, batch_size) tensor
         optimizer.zero_grad()
         loss = criterion(output.squeeze(), target)                                       # take argmax to get the class with the highest "probability"
         loss.backward()
@@ -125,7 +137,6 @@ def train_epoch(model, epoch, num_epochs, trainloader, optimizer, criterion, dev
         pred = output.squeeze().argmax(dim=1)                                           # output is (batch_size, target seq len, num_classes) so need to squeeze to (batch_size, num_classes). For classification, target seq len = 1                             # get batch size
         total_loss += loss.item()
         total_correct += (pred == target).sum().item()                                  # summing over a list results in a list so need to use .item() to get a number.
-        pred, target = pred.to("cpu").numpy(), target.to("cpu").numpy()                 # Need to convert to numpy arrays and move to cpu for wandb confusion matrix
 
     accuracy = total_correct / len(trainloader.dataset)
     avg_loss = total_loss/ len(trainloader.dataset)
@@ -148,7 +159,8 @@ def validate(model, testloader, criterion, device, save_path, class_names, debug
         for step, batch in enumerate(tqdm(testloader)):
             input, target = batch
             input, target = input.to(device), target.to(device)
-            output = model(input, target)
+            #output = model(input, target)
+            output = model(input)
             loss = criterion(output.squeeze(), target)                                  # Need to .squeeze() because of headed attention.
             pred = output.squeeze().argmax(dim=1)
             total_loss += loss
