@@ -33,7 +33,6 @@ class Transformer(nn.Module):
 # Initialize weights to very small numbers close to 0, instead of pytorch's default initalization. 
 def init_weights(m):
     if isinstance(m, nn.Linear) or isinstance(m, nn.Conv2d):
-        # torch.nn.init.normal_(m.weight, std=0.001)
         nn.init.trunc_normal_(m.weight, mean=0.0, std=0.02)
         if m.bias is not None:
             nn.init.constant_(m.bias, 0)
@@ -157,8 +156,8 @@ class Positional_Encoding(nn.Module):
         self.dropout = nn.Dropout(dropout_rate)
         self.flatten = nn.Flatten() 
         self.in_embedding = nn.Embedding(in_dim, embed_dim) 
-        self.class_token = nn.Parameter(torch.zeros(1, 1, embed_dim)) 
-        self.pos_encoding = torch.zeros([1, max_len, embed_dim], device=device)         # TODO: fix this                     # each "word" has encoding of size embed_dim
+        self.class_token = nn.Parameter(torch.zeros(1, 1, embed_dim))                 
+        self.pos_encoding = torch.zeros([1, max_len, embed_dim])         # each "word" has encoding of size embed_dim
 
         # calculate e^(2i * log(n)/embed_dim) where n = 10000 from original paper and i goes from 0 to embed_dim/2 because there are embed_dim PAIRS
         div_term = torch.exp(torch.arange(0, embed_dim, 2) * -(math.log(torch.tensor(10000.0)) / embed_dim))  

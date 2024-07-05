@@ -6,7 +6,6 @@ import os
 import wandb
 
 from model import Transformer
-from other_model import VisionTransformer
 from utils import Rescale
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID" 
@@ -46,27 +45,20 @@ def main():
                                                         "n_channels": n_channels,
                                                         "warmup_epochs":warmup_epochs,
                                                         "ffn_multiplier": ffn_multiplier, 
-                                                        "dropout_rate": dropout_rate})
-    
-    # transform = torchvision.transforms.Compose([torchvision.transforms.ToTensor(),                  # issue: scales image to [0,1] range          
-    #                                             # do not want to center around 0. center around mean instead to avoid negative values (for embedding)
-    #                                             torchvision.transforms.RandomRotation(45),
-    #                                             torchvision.transforms.RandomHorizontalFlip(),
-    #                                             torchvision.transforms.RandomVerticalFlip(),
-    #                                             torchvision.transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261)),])       # from https://github.com/kuangliu/pytorch-cifar/issues/19  
-    #                                             #torchvision.transforms.Grayscale(),])
-    #                                             #Rescale()])      # resolve scaling issue from ToTensor (embedding only takes in ints, so we need [0, 255] range)      
+                                                        "dropout_rate": dropout_rate})     
 
-    train_transform = torchvision.transforms.Compose([#transforms.Resize([img_side_len, img_side_len]),
-                                            transforms.RandomCrop(img_side_len, padding=4), 
+    train_transform = torchvision.transforms.Compose([transforms.RandomCrop(img_side_len, padding=4), 
                                             transforms.RandomHorizontalFlip(),
                                             transforms.RandAugment(),  # RandAugment augmentation for strong regularization
                                             transforms.ToTensor(), 
-                                            transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2470, 0.2435, 0.2616])])                     
+                                            transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2470, 0.2435, 0.2616])])          # positional embedding cannot take negative values (center around mean not around 0)
+                                            # transforms.Normalize([0, 0, 0], [0.2470, 0.2435, 0.2616]),
+                                            # Rescale()])                     
 
-    test_transform = torchvision.transforms.Compose([#transforms.Resize([img_side_len, img_side_len]),
-                                                     transforms.ToTensor(),
-                                                     transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2470, 0.2435, 0.2616])])
+    test_transform = torchvision.transforms.Compose([transforms.ToTensor(),
+                                                     transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2470, 0.2435, 0.2616]),])
+                                                    #  transforms.Normalize([0, 0, 0], [0.2470, 0.2435, 0.2616]),
+                                                    #  Rescale()])
 
     trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=False, transform=train_transform)
     
@@ -84,11 +76,9 @@ def main():
     
     # Initialize model and move to GPU if available
     model = Transformer(img_side_len, patch_size, n_channels, num_classes, num_heads, num_blocks, embed_dim, ffn_multiplier, dropout_rate)
-    #model = VisionTransformer(n_channels, embed_dim, num_blocks, num_heads, ffn_multiplier, img_side_len, patch_size, num_classes, dropout_rate)
     model.to(device)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-3) 
-    #optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)          
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-3)         
     criterion = torch.nn.CrossEntropyLoss()
 
     if not os.path.exists(save_path):          
@@ -103,12 +93,6 @@ def main():
 def train(model, trainloader, testloader, optimizer, criterion, num_epochs, device, save_path, class_names, debug, warmup_epochs):
     linear_warmup = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1/warmup_epochs, end_factor=1.0, total_iters=warmup_epochs-1, last_epoch=-1)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=num_epochs-warmup_epochs, eta_min=1e-5)
-    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 
-    #                                          mode='min', 
-    #                                          factor=0.5, 
-    #                                          patience=5, 
-    #                                          threshold=1e-4, 
-    #                                          min_lr=1e-7) 
 
     for epoch in range(num_epochs):
         print(f'Start training epoch {epoch+1}/{num_epochs}...')
@@ -116,7 +100,6 @@ def train(model, trainloader, testloader, optimizer, criterion, num_epochs, devi
         val_acc, val_loss = validate(model, testloader, criterion, device, save_path, class_names, debug)
         if not debug:
             wandb.log({"training_accuracy":train_accuracy, "training_loss":train_loss, "validation_acc":val_acc, "validation_loss":val_loss, "epoch":epoch, "learning rate":optimizer.param_groups[-1]['lr']})
-        #scheduler.step(val_loss.item())         #val_loss is a tensor so need to get the number
         if epoch < warmup_epochs:
             linear_warmup.step()
         else:
@@ -131,8 +114,7 @@ def train_epoch(model, epoch, num_epochs, trainloader, optimizer, criterion, dev
 
     for step, batch in enumerate(tqdm(trainloader)):
         input, target = batch
-        input, target = input.to(device), target.to(device)
-        #output = model(input, target)   
+        input, target = input.to(device), target.to(device)   
         output = model(input)                                                 # result is a (num_classes, batch_size) tensor
         optimizer.zero_grad()
         loss = criterion(output.squeeze(), target)                                       # take argmax to get the class with the highest "probability"
@@ -163,7 +145,6 @@ def validate(model, testloader, criterion, device, save_path, class_names, debug
         for step, batch in enumerate(tqdm(testloader)):
             input, target = batch
             input, target = input.to(device), target.to(device)
-            #output = model(input, target)
             output = model(input)
             loss = criterion(output.squeeze(), target)                                  # Need to .squeeze() because of headed attention.
             pred = output.squeeze().argmax(dim=1)
