@@ -57,14 +57,14 @@ def main():
     #                                             #torchvision.transforms.Grayscale(),])
     #                                             #Rescale()])      # resolve scaling issue from ToTensor (embedding only takes in ints, so we need [0, 255] range)      
 
-    train_transform = torchvision.transforms.Compose([transforms.Resize([img_side_len, img_side_len]),
+    train_transform = torchvision.transforms.Compose([#transforms.Resize([img_side_len, img_side_len]),
                                             transforms.RandomCrop(img_side_len, padding=4), 
                                             transforms.RandomHorizontalFlip(),
                                             transforms.RandAugment(),  # RandAugment augmentation for strong regularization
                                             transforms.ToTensor(), 
                                             transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2470, 0.2435, 0.2616])])                     
 
-    test_transform = torchvision.transforms.Compose([transforms.Resize([img_side_len, img_side_len]),
+    test_transform = torchvision.transforms.Compose([#transforms.Resize([img_side_len, img_side_len]),
                                                      transforms.ToTensor(),
                                                      transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2470, 0.2435, 0.2616])])
 
