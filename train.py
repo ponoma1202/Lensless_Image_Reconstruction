@@ -7,16 +7,17 @@ import wandb
 
 from model import Transformer
 from utils import Rescale
+from dataset import get_loader
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID" 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2'
 gpu_number = 0
 
 def main():
-    # Using CIFAR 10 for the data
-    debug = False
+    debug = True
 
-    batch_size = 128
+    dataset = "Mirflickr"           # 'Mirflickr' or 'CIFAR10'
+    batch_size = 64 #128
     num_epochs = 200
     learning_rate = 5e-4
     num_classes = 10
@@ -29,12 +30,13 @@ def main():
     ffn_multiplier = 2
     img_side_len = 32
     dropout_rate = 0.1
+    num_workers = 4
     save_path = './checkpoint/model.pth'
     class_names = ['plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']      # For confusion matrix
     if not debug:
         run = wandb.init(project='basic_transformer', config={"learning_rate":learning_rate,
                                                         "architecture": Transformer,
-                                                        "dataset": 'CIFAR-10',
+                                                        "dataset": dataset,
                                                         "epochs":num_epochs,
                                                         "batch_size":batch_size,
                                                         "classes":num_classes,
@@ -47,25 +49,8 @@ def main():
                                                         "ffn_multiplier": ffn_multiplier, 
                                                         "dropout_rate": dropout_rate})     
 
-    train_transform = torchvision.transforms.Compose([transforms.RandomCrop(img_side_len, padding=4), 
-                                            transforms.RandomHorizontalFlip(),
-                                            transforms.RandAugment(),  # RandAugment augmentation for strong regularization
-                                            transforms.ToTensor(), 
-                                            transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2470, 0.2435, 0.2616])])          # positional embedding cannot take negative values (center around mean not around 0)
-                                            # transforms.Normalize([0, 0, 0], [0.2470, 0.2435, 0.2616]),
-                                            # Rescale()])                     
-
-    test_transform = torchvision.transforms.Compose([transforms.ToTensor(),
-                                                     transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2470, 0.2435, 0.2616]),])
-                                                    #  transforms.Normalize([0, 0, 0], [0.2470, 0.2435, 0.2616]),
-                                                    #  Rescale()])
-
-    trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=False, transform=train_transform)
-    
-    trainloader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True)
-
-    testset = torchvision.datasets.CIFAR10(root='./data', train=False, download=False, transform=test_transform)
-    testloader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False)
+    # Get data loaders
+    train_loader, val_loader = get_loader(dataset, img_side_len, batch_size, num_workers)
 
     # See if gpu is available
     if torch.cuda.is_available():
@@ -84,20 +69,20 @@ def main():
     if not os.path.exists(save_path):          
         os.mkdir(save_path)
 
-    train(model, trainloader, testloader, optimizer, criterion, num_epochs, device, save_path, class_names, debug, warmup_epochs)
+    train(model, train_loader, val_loader, optimizer, criterion, num_epochs, device, save_path, class_names, debug, warmup_epochs)
     if not debug:
         run.finish()
 
 
 # Includes both training and validation
-def train(model, trainloader, testloader, optimizer, criterion, num_epochs, device, save_path, class_names, debug, warmup_epochs):
+def train(model, train_loader, val_loader, optimizer, criterion, num_epochs, device, save_path, class_names, debug, warmup_epochs):
     linear_warmup = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1/warmup_epochs, end_factor=1.0, total_iters=warmup_epochs-1, last_epoch=-1)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=num_epochs-warmup_epochs, eta_min=1e-5)
 
     for epoch in range(num_epochs):
         print(f'Start training epoch {epoch+1}/{num_epochs}...')
-        train_accuracy, train_loss = train_epoch(model, epoch, num_epochs, trainloader, optimizer, criterion, device) 
-        val_acc, val_loss = validate(model, testloader, criterion, device, save_path, class_names, debug)
+        train_accuracy, train_loss = train_epoch(model, epoch, num_epochs, train_loader, optimizer, criterion, device) 
+        val_acc, val_loss = validate(model, val_loader, criterion, device, save_path, class_names, debug)
         if not debug:
             wandb.log({"training_accuracy":train_accuracy, "training_loss":train_loss, "validation_acc":val_acc, "validation_loss":val_loss, "epoch":epoch, "learning rate":optimizer.param_groups[-1]['lr']})
         if epoch < warmup_epochs:
@@ -107,12 +92,12 @@ def train(model, trainloader, testloader, optimizer, criterion, num_epochs, devi
     torch.save(model.state_dict(), save_path)
         
 
-def train_epoch(model, epoch, num_epochs, trainloader, optimizer, criterion, device):
+def train_epoch(model, epoch, num_epochs, train_loader, optimizer, criterion, device):
     model.train()
     total_correct = 0
     total_loss = 0
 
-    for step, batch in enumerate(tqdm(trainloader)):
+    for step, batch in enumerate(tqdm(train_loader)):
         input, target = batch
         input, target = input.to(device), target.to(device)   
         output = model(input)                                                 # result is a (num_classes, batch_size) tensor
@@ -124,13 +109,13 @@ def train_epoch(model, epoch, num_epochs, trainloader, optimizer, criterion, dev
         total_loss += loss.item()
         total_correct += (pred == target).sum().item()                                  # summing over a list results in a list so need to use .item() to get a number.
 
-    accuracy = total_correct / len(trainloader.dataset)
-    avg_loss = total_loss/ len(trainloader.dataset)
+    accuracy = total_correct / len(train_loader.dataset)
+    avg_loss = total_loss/ len(train_loader.dataset)
     print(f'Epoch {epoch+1}/{num_epochs}, Loss: {avg_loss}, Accuracy: {accuracy}')
     return accuracy, avg_loss          
 
 
-def validate(model, testloader, criterion, device, save_path, class_names, debug, load=False):
+def validate(model, val_loader, criterion, device, save_path, class_names, debug, load=False):
     if load:
         model.load_state_dict(torch.load(save_path))                         # if loading from saved model
     
@@ -142,7 +127,7 @@ def validate(model, testloader, criterion, device, save_path, class_names, debug
         all_targets = [] 
         all_preds = [] 
 
-        for step, batch in enumerate(tqdm(testloader)):
+        for step, batch in enumerate(tqdm(val_loader)):
             input, target = batch
             input, target = input.to(device), target.to(device)
             output = model(input)
@@ -159,8 +144,8 @@ def validate(model, testloader, criterion, device, save_path, class_names, debug
             wandb.log({"conf_mat" : wandb.plot.confusion_matrix(probs=None,                 # Track confusion matrix to see accuracy for each class
                             y_true=all_targets, preds=all_preds,
                             class_names=class_names)})
-        accuracy = total_correct/len(testloader.dataset)
-        avg_loss = total_loss/len(testloader.dataset)
+        accuracy = total_correct/len(val_loader.dataset)
+        avg_loss = total_loss/len(val_loader.dataset)
         print(f'Validation Loss: {avg_loss}, Validation Accuracy: {accuracy} \n')
         return accuracy, avg_loss
     
