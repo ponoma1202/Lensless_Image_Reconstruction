@@ -5,7 +5,8 @@ from tqdm import tqdm
 import os
 import wandb
 
-from model import Transformer
+from Basic_Transformer.classification_model import Transformer
+from recon_model import Recon_Transformer
 from utils import Rescale
 from dataset import get_loader
 
@@ -60,7 +61,10 @@ def main():
         device = torch.device("cpu")
     
     # Initialize model and move to GPU if available
-    model = Transformer(img_side_len, patch_size, n_channels, num_classes, num_heads, num_blocks, embed_dim, ffn_multiplier, dropout_rate)
+    if dataset == "CIFAR10":
+        model = Transformer(img_side_len, patch_size, n_channels, num_classes, num_heads, num_blocks, embed_dim, ffn_multiplier, dropout_rate)
+    elif dataset == "Mirflickr":
+        model = Recon_Transformer(img_side_len, patch_size, n_channels, num_classes, num_heads, num_blocks, embed_dim, ffn_multiplier, dropout_rate)
     model.to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-3)         
