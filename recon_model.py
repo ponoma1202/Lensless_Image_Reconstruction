@@ -4,33 +4,20 @@ import math
 
 # based on https://github.com/brandokoch/attention-is-all-you-need-paper/tree/master and pytorch tutorial
 
-# TODO: EDIT ARCHITECTURE FOR RECONSTRUCTION TASK INSTEAD OF CLASSIFICATION
-
 class Recon_Transformer(nn.Module):
-    def __init__(self, img_side_len, patch_size, n_channels, num_classes, n_heads=8, n_blocks=6, embed_dim=512, ffn_multiplier=4, dropout_rate=0.1):
+    def __init__(self, img_side_len, patch_size, n_channels, n_heads=8, n_blocks=6, embed_dim=512, ffn_multiplier=4, dropout_rate=0.1):
         super().__init__()
         self.embed_dim = embed_dim
-        self.positional_encoding = Patch_Embedding(img_side_len, patch_size, n_channels, embed_dim, dropout_rate=0.0)          
-        #self.positional_encoding = Positional_Encoding(img_side_len*img_side_len, embed_dim, dropout_rate)
-
-        # MLP head from ViT applied to class token
-        self.linear1 = nn.Linear(embed_dim, embed_dim)          # linear layer to get output classes
-        self.tanh = nn.Tanh() 
-        self.linear2 = nn.Linear(embed_dim, num_classes)                             
-
+        self.positional_encoding = Patch_Embedding(img_side_len, patch_size, n_channels, embed_dim, dropout_rate=0.0)                                    
         self.encoder = Encoder(embed_dim, ffn_multiplier, n_heads, n_blocks, dropout_rate)
+        self.decoder = Decoder(embed_dim, n_channels)
         self.apply(init_weights)
     
     def forward(self, x):                                                       
         encoder_in = self.positional_encoding(x)         # (batch_size, seq_len, embed_dim) tensor
-        encoder_output = self.encoder(encoder_in)        # output = (batch_size, num_tokens, embed_dim)
-
-        # Extract class token
-        class_token_learned = encoder_output[:, 0, :]
-
-        # MLP head
-        class_token_learned = self.linear2(self.tanh(self.linear1(class_token_learned))) 
-        return class_token_learned
+        encoder_out = self.encoder(encoder_in)        # output = (batch_size, num_tokens, embed_dim)
+        result = self.decoder(encoder_out)
+        return result
     
 # Initialize weights to very small numbers close to 0, instead of pytorch's default initalization. 
 def init_weights(m):
@@ -43,9 +30,8 @@ def init_weights(m):
         nn.init.constant_(m.weight, 1)
         nn.init.constant_(m.bias, 0) 
 
-    elif isinstance(m, Patch_Embedding) or isinstance(m, Positional_Encoding):
-        torch.nn.init.trunc_normal_(m.class_token, mean=0.0, std=0.02)       # taken from https://github.com/s-chh/PyTorch-Scratch-Vision-Transformer-ViT-MNIST-CIFAR10/blob/main/model.py 
-        torch.nn.init.trunc_normal_(m.pos_encoding, mean=0.0, std=0.02)
+    elif isinstance(m, Patch_Embedding):
+        torch.nn.init.trunc_normal_(m.embedding, mean=0.0, std=0.02)
     
 # list of all encoder blocks
 class Encoder(nn.Module):
@@ -77,6 +63,31 @@ class Encoder_Block(nn.Module):
         x = x + self.dropout2(self.ffn(self.norm2(x)))
         return x
     
+# Doing basic CNN upsampling for now
+class Decoder(nn.Module):
+    def __init__(self, embed_dim, end_num_channels):
+        super().__init__()
+        self.conv1 = nn.Conv2d(embed_dim, embed_dim // 2, kernel_size=3, padding=1)     # same as lensless imaging transformer
+        self.conv2 = nn.Conv2d(embed_dim // 2, embed_dim // 4, kernel_size=3, padding=1)        # had bias=False in their decoder
+        self.conv3 = nn.Conv2d(embed_dim // 4, embed_dim // 8, kernel_size=3, padding=1)
+        self.conv4 = nn.Conv2d(embed_dim // 8, end_num_channels, kernel_size=3, padding=1)
+
+        self.batch1 = nn.BatchNorm2d(embed_dim // 2)
+        self.batch2 = nn.BatchNorm2d(embed_dim // 4)
+        self.batch3 = nn.BatchNorm2d(embed_dim // 8)
+
+        self.relu1 = nn.ReLU()
+        self.relu2 = nn.ReLU()
+        self.relu3 = nn.ReLU()
+
+    def forward(self, x):
+        x = self.relu1(self.batch1(self.conv1(x)))
+        x = self.relu2(self.batch2(self.conv2(x)))
+        x = self.relu3(self.batch3(self.conv3(x)))
+        x = self.conv4(x)
+        return x
+
+
 
 ### Helper classes ###
 
@@ -129,59 +140,20 @@ class Patch_Embedding(nn.Module):
         super().__init__()
         self.patch_size = patch_size
         self.embed_dim = embed_dim          # same as embedding dimension 
-        self.num_patches = (img_side_len // patch_size) ** 2 + 1          # add 1 for the class token
+        self.num_patches = (img_side_len // patch_size) ** 2 
         
         # Note: positional embedding in ViT does not use sine/cosine
         self.conv = torch.nn.Conv2d(n_channels, embed_dim, kernel_size=patch_size, stride=patch_size)         # no overlapping means stride needs to be same as patch size
-        self.pos_encoding = nn.Parameter(torch.zeros([1, self.num_patches, self.embed_dim], requires_grad=True))
-        self.class_token = nn.Parameter(torch.zeros([1, 1, self.embed_dim], requires_grad=True)) 
+        self.embedding = nn.Parameter(torch.zeros([1, self.num_patches, self.embed_dim], requires_grad=True))
         self.dropout = nn.Dropout(dropout_rate)
 
     def forward(self, x):
         x = self.conv(x)        # (batch size, channels, height, width) => (batch size, embed_dim, height/patch size, width/patch size)
         x = torch.flatten(x, 2)         # result = (batch size, embed_dim, num_patches). 
         x = x.transpose(1, 2)           # switch to having num_patch tensors of dim embed_dim (embedding dimension)
-        
-        class_token = self.class_token.expand(x.size(0), -1, -1)            # add in batch dim
-        x = torch.cat((class_token, x), dim=1)
 
-        x = x + self.pos_encoding
+        x = x + self.embedding
         x = self.dropout(x)
-        return x
-
-
-# Followed: https://pytorch.org/tutorials/beginner/transformer_tutorial.html#:~:text=class%20PositionalEncoding(nn.Module)%3A 
-class Positional_Encoding(nn.Module):                     
-    def __init__(self, in_dim, embed_dim, dropout_rate=0.1, max_len=5000):
-        super().__init__()
-        self.embed_dim = embed_dim
-        self.dropout = nn.Dropout(dropout_rate)
-        self.flatten = nn.Flatten() 
-        self.in_embedding = nn.Embedding(in_dim, embed_dim) 
-        self.class_token = nn.Parameter(torch.zeros(1, 1, embed_dim))                 
-        self.pos_encoding = torch.zeros([1, max_len, embed_dim])         # each "word" has encoding of size embed_dim
-
-        # calculate e^(2i * log(n)/embed_dim) where n = 10000 from original paper and i goes from 0 to embed_dim/2 because there are embed_dim PAIRS
-        div_term = torch.exp(torch.arange(0, embed_dim, 2) * -(math.log(torch.tensor(10000.0)) / embed_dim))  
-
-        # create (max_len, 1) column tensor for all positions (numbered)
-        pos = torch.arange(0, max_len).unsqueeze(1)
-
-        # broadcast and set even indices to sin and odd indices to cos
-        self.pos_encoding[0, :, 0::2] = torch.sin(pos * div_term)                  # select all rows. Start at column 0 and skip every 2 cols
-        self.pos_encoding[0, :, 1::2] = torch.cos(pos * div_term)    
-
-        # make positional embedding a parameter so it can be learned
-        self.pos_encoding = nn.Parameter(self.pos_encoding)             
-
-    def forward(self, x):
-        x = self.flatten(x).to(dtype=torch.long, device=x.device)
-        class_token = self.class_token.expand(x.size(0), -1, -1)
-        embedded_img = self.in_embedding(x) * math.sqrt(self.embed_dim)
-        x = torch.cat((class_token, embedded_img), dim=1)               # concatenate the class token with the flattened image embedding along num_tokens dimension (dim = 1)
-
-        x = x + self.pos_encoding[:, :x.size(1)]                                   # trim down pos_encoding to size of actual input sequence. dim = (1, num_tokens, embed_dim)
-        x = self.dropout(x)                          
         return x
 
 # called "position wise" because it already includes positional embeddings from previous layers

@@ -1,13 +1,10 @@
 import torch
-import torchvision
-import torchvision.transforms as transforms
 from tqdm import tqdm
 import os
 import wandb
 
-from Basic_Transformer.classification_model import Transformer
+from classification_model import Transformer
 from recon_model import Recon_Transformer
-from utils import Rescale
 from dataset import get_loader
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID" 
@@ -29,10 +26,10 @@ def main():
     n_channels = 3
     warmup_epochs = 10
     ffn_multiplier = 2
-    img_side_len = 32
+    min_side_len = 270
     dropout_rate = 0.1
     num_workers = 4
-    save_path = './checkpoint/model.pth'
+    save_path = './checkpoint/'
     class_names = ['plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']      # For confusion matrix
     if not debug:
         run = wandb.init(project='basic_transformer', config={"learning_rate":learning_rate,
@@ -51,7 +48,7 @@ def main():
                                                         "dropout_rate": dropout_rate})     
 
     # Get data loaders
-    train_loader, val_loader = get_loader(dataset, img_side_len, batch_size, num_workers)
+    train_loader, val_loader, _ = get_loader(dataset, min_side_len, batch_size, num_workers)
 
     # See if gpu is available
     if torch.cuda.is_available():
@@ -62,9 +59,9 @@ def main():
     
     # Initialize model and move to GPU if available
     if dataset == "CIFAR10":
-        model = Transformer(img_side_len, patch_size, n_channels, num_classes, num_heads, num_blocks, embed_dim, ffn_multiplier, dropout_rate)
+        model = Transformer(min_side_len, patch_size, n_channels, num_classes, num_heads, num_blocks, embed_dim, ffn_multiplier, dropout_rate)
     elif dataset == "Mirflickr":
-        model = Recon_Transformer(img_side_len, patch_size, n_channels, num_classes, num_heads, num_blocks, embed_dim, ffn_multiplier, dropout_rate)
+        model = Recon_Transformer(min_side_len, patch_size, n_channels, num_heads, num_blocks, embed_dim, ffn_multiplier, dropout_rate)
     model.to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-3)         
@@ -93,7 +90,7 @@ def train(model, train_loader, val_loader, optimizer, criterion, num_epochs, dev
             linear_warmup.step()
         else:
             scheduler.step()
-    torch.save(model.state_dict(), save_path)
+    torch.save(model.state_dict(), os.join(save_path, 'model.pth'))
         
 
 def train_epoch(model, epoch, num_epochs, train_loader, optimizer, criterion, device):
