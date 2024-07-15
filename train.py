@@ -12,17 +12,17 @@ os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2'
 gpu_number = 0
 
 def main():
-    debug = True
+    debug = False
 
     dataset = "Mirflickr"           # 'Mirflickr' or 'CIFAR10'
-    batch_size = 64 #128
+    batch_size = 8 #128
     num_epochs = 200
     learning_rate = 5e-4
     num_classes = 10
     num_heads = 4
     num_blocks = 6
     embed_dim = 128            # dimension of embedding/hidden layer in Transformer
-    patch_size = 4
+    patch_size = 15     # 270 / 15 = 18
     n_channels = 3
     warmup_epochs = 10
     ffn_multiplier = 2
@@ -106,9 +106,9 @@ def train_epoch(model, epoch, num_epochs, train_loader, optimizer, criterion, de
         loss = criterion(output.squeeze(), target)                                       # take argmax to get the class with the highest "probability"
         loss.backward()
         optimizer.step() 
-        pred = output.squeeze().argmax(dim=1)                                           # output is (batch_size, target seq len, num_classes) so need to squeeze to (batch_size, num_classes). For classification, target seq len = 1                             # get batch size
+        #pred = output.squeeze().argmax(dim=1)     # only for classification       
         total_loss += loss.item()
-        total_correct += (pred == target).sum().item()                                  # summing over a list results in a list so need to use .item() to get a number.
+        total_correct += (output == target).sum().item()                                  # summing over a list results in a list so need to use .item() to get a number.
 
     accuracy = total_correct / len(train_loader.dataset)
     avg_loss = total_loss/ len(train_loader.dataset)
@@ -133,18 +133,18 @@ def validate(model, val_loader, criterion, device, save_path, class_names, debug
             input, target = input.to(device), target.to(device)
             output = model(input)
             loss = criterion(output.squeeze(), target)                                  # Need to .squeeze() because of headed attention.
-            pred = output.squeeze().argmax(dim=1)
+            # pred = output.squeeze().argmax(dim=1)
             total_loss += loss
-            total_correct += (pred == target).sum().item()
+            total_correct += (output == target).sum().item()         
 
-            # accumulate all targets and preds and then run confusion matrix
-            all_targets.extend(target.cpu().numpy())
-            all_preds.extend(pred.cpu().numpy())
-        if not debug:
-            wandb.log({'confusion_mat' : wandb.sklearn.plot_confusion_matrix(all_targets, all_preds, class_names)})
-            wandb.log({"conf_mat" : wandb.plot.confusion_matrix(probs=None,                 # Track confusion matrix to see accuracy for each class
-                            y_true=all_targets, preds=all_preds,
-                            class_names=class_names)})
+            # accumulate all targets and preds and then run confusion matrix for classification only
+        #     all_targets.extend(pred.cpu().numpy())
+        #     all_preds.extend(pred.cpu().numpy())
+        # if not debug:
+        #     wandb.log({'confusion_mat' : wandb.sklearn.plot_confusion_matrix(all_targets, all_preds, class_names)})
+        #     wandb.log({"conf_mat" : wandb.plot.confusion_matrix(probs=None,                 # Track confusion matrix to see accuracy for each class
+        #                     y_true=all_targets, preds=all_preds,
+        #                     class_names=class_names)})
         accuracy = total_correct/len(val_loader.dataset)
         avg_loss = total_loss/len(val_loader.dataset)
         print(f'Validation Loss: {avg_loss}, Validation Accuracy: {accuracy} \n')

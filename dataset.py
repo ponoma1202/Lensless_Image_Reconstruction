@@ -72,9 +72,9 @@ def get_loader(dataset, min_side_len, batch_size, num_workers, root_dir="/home/p
         trainset, valset, testset = torch.utils.data.random_split(dataset, [0.7, 0.15, 0.15], generator)
 
         # Apply transforms after doing random split
-        trainset = Mirflickr(root_dir, trainset.dataset.data_list, trainset.dataset.target_list, train_transform, train_transform)
+        trainset = Mirflickr(root_dir, trainset.dataset.data_list, trainset.dataset.target_list, input_transform=train_transform, target_transform=train_transform)
         valset = Mirflickr(root_dir, valset.dataset.data_list, valset.dataset.target_list, val_transform, val_transform)
-        testset = Mirflickr(root_dir, testset.dataset.data_list, testset.dataset.target_list, val_transform)
+        testset = Mirflickr(root_dir, testset.dataset.data_list, testset.dataset.target_list, val_transform, val_transform)
         
     else:
         raise("Unkown dataset.")

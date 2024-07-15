@@ -10,12 +10,12 @@ class Recon_Transformer(nn.Module):
         self.embed_dim = embed_dim
         self.positional_encoding = Patch_Embedding(img_side_len, patch_size, n_channels, embed_dim, dropout_rate=0.0)                                    
         self.encoder = Encoder(embed_dim, ffn_multiplier, n_heads, n_blocks, dropout_rate)
-        self.decoder = Decoder(embed_dim, n_channels)
+        self.decoder = Decoder(embed_dim, n_channels, img_side_len, patch_size)
         self.apply(init_weights)
     
     def forward(self, x):                                                       
         encoder_in = self.positional_encoding(x)         # (batch_size, seq_len, embed_dim) tensor
-        encoder_out = self.encoder(encoder_in)        # output = (batch_size, num_tokens, embed_dim)
+        encoder_out = self.encoder(encoder_in)        # output = (batch_size, num_patches, embed_dim)
         result = self.decoder(encoder_out)
         return result
     
@@ -65,12 +65,12 @@ class Encoder_Block(nn.Module):
     
 # Doing basic CNN upsampling for now
 class Decoder(nn.Module):
-    def __init__(self, embed_dim, end_num_channels):
+    def __init__(self, embed_dim, end_num_channels,img_side_len, patch_size):
         super().__init__()
-        self.conv1 = nn.Conv2d(embed_dim, embed_dim // 2, kernel_size=3, padding=1)     # same as lensless imaging transformer
-        self.conv2 = nn.Conv2d(embed_dim // 2, embed_dim // 4, kernel_size=3, padding=1)        # had bias=False in their decoder
-        self.conv3 = nn.Conv2d(embed_dim // 4, embed_dim // 8, kernel_size=3, padding=1)
-        self.conv4 = nn.Conv2d(embed_dim // 8, end_num_channels, kernel_size=3, padding=1)
+        self.conv1 = nn.ConvTranspose2d(embed_dim, embed_dim // 2, kernel_size=2, stride=2, padding=1)     # same as lensless imaging transformer
+        self.conv2 = nn.ConvTranspose2d(embed_dim // 2, embed_dim // 4, kernel_size=2, stride=2, padding=1)        # had bias=False in their decoder
+        self.conv3 = nn.ConvTranspose2d(embed_dim // 4, embed_dim // 8, kernel_size=2, stride=2, padding=1)
+        self.conv4 = nn.ConvTranspose2d(embed_dim // 8, end_num_channels, kernel_size=2, stride=2, padding=1)
 
         self.batch1 = nn.BatchNorm2d(embed_dim // 2)
         self.batch2 = nn.BatchNorm2d(embed_dim // 4)
@@ -80,11 +80,17 @@ class Decoder(nn.Module):
         self.relu2 = nn.ReLU()
         self.relu3 = nn.ReLU()
 
+        self.img_side_len = img_side_len
+        self.num_patch_one_side = img_side_len // patch_size
+
     def forward(self, x):
+        x = x.transpose(1, 2)       # did this in patch embedding for memory efficiency (lensless transformer doesn't do this in the first place)
+        x = torch.unflatten(x, 2, (self.num_patch_one_side, self.num_patch_one_side))       # undo the flatten operation in embedding layer (flattens patched image to one long vector)
         x = self.relu1(self.batch1(self.conv1(x)))
         x = self.relu2(self.batch2(self.conv2(x)))
         x = self.relu3(self.batch3(self.conv3(x)))
         x = self.conv4(x)
+        x = nn.functional.interpolate(x, (self.img_side_len, self.img_side_len), mode='bilinear', align_corners=False)      # Get image to desired size
         return x
 
 
@@ -150,7 +156,7 @@ class Patch_Embedding(nn.Module):
     def forward(self, x):
         x = self.conv(x)        # (batch size, channels, height, width) => (batch size, embed_dim, height/patch size, width/patch size)
         x = torch.flatten(x, 2)         # result = (batch size, embed_dim, num_patches). 
-        x = x.transpose(1, 2)           # switch to having num_patch tensors of dim embed_dim (embedding dimension)
+        x = x.transpose(1, 2)           # switch to having num_patch tensors of dim embed_dim (for efficient memory storage since embedding dimension is usually smaller than sequence length/number of patches)
 
         x = x + self.embedding
         x = self.dropout(x)
