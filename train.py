@@ -29,7 +29,7 @@ def main():
     min_side_len = 270
     dropout_rate = 0.1
     num_workers = 4
-    save_path = './checkpoint/'
+    save_path = './checkpoint/' #'./checkpoint_experiment/'
     class_names = ['plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']      # For confusion matrix
     if not debug:
         run = wandb.init(project='basic_transformer', config={"learning_rate":learning_rate,
@@ -80,17 +80,23 @@ def train(model, train_loader, val_loader, optimizer, criterion, num_epochs, dev
     linear_warmup = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1/warmup_epochs, end_factor=1.0, total_iters=warmup_epochs-1, last_epoch=-1)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=num_epochs-warmup_epochs, eta_min=1e-5)
 
+    best_loss = float('inf')
     for epoch in range(num_epochs):
         print(f'Start training epoch {epoch+1}/{num_epochs}...')
         train_accuracy, train_loss = train_epoch(model, epoch, num_epochs, train_loader, optimizer, criterion, device) 
         val_acc, val_loss = validate(model, val_loader, criterion, device, save_path, class_names, debug)
         if not debug:
-            wandb.log({"training_accuracy":train_accuracy, "training_loss":train_loss, "validation_acc":val_acc, "validation_loss":val_loss, "epoch":epoch, "learning rate":optimizer.param_groups[-1]['lr']})
+            #wandb.log({"training_accuracy":train_accuracy, "training_loss":train_loss, "validation_acc":val_acc, "validation_loss":val_loss, "epoch":epoch, "learning rate":optimizer.param_groups[-1]['lr']})
+            wandb.log({"training_loss":train_loss, "validation_loss":val_loss, "epoch":epoch, "learning rate":optimizer.param_groups[-1]['lr']})
         if epoch < warmup_epochs:
             linear_warmup.step()
         else:
             scheduler.step()
-    torch.save(model.state_dict(), os.join(save_path, 'model.pth'))
+
+        # save best model
+        if val_loss < best_loss:
+            torch.save(model.state_dict(), os.path.join(save_path, 'best_model.pth'))
+        torch.save(model.state_dict(), os.path.join(save_path, 'model.pth'))
         
 
 def train_epoch(model, epoch, num_epochs, train_loader, optimizer, criterion, device):
@@ -99,7 +105,7 @@ def train_epoch(model, epoch, num_epochs, train_loader, optimizer, criterion, de
     total_loss = 0
 
     for step, batch in enumerate(tqdm(train_loader)):
-        input, target = batch
+        input, target, _ = batch
         input, target = input.to(device), target.to(device)   
         output = model(input)                                                 # result is a (num_classes, batch_size) tensor
         optimizer.zero_grad()
@@ -129,7 +135,7 @@ def validate(model, val_loader, criterion, device, save_path, class_names, debug
         all_preds = [] 
 
         for step, batch in enumerate(tqdm(val_loader)):
-            input, target = batch
+            input, target, _ = batch
             input, target = input.to(device), target.to(device)
             output = model(input)
             loss = criterion(output.squeeze(), target)                                  # Need to .squeeze() because of headed attention.

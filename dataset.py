@@ -32,6 +32,7 @@ class Mirflickr(Dataset):
     def __getitem__(self, index):
         image = np.load(os.path.join(self.data_dir, self.data_list[index]))
         target = np.load(os.path.join(self.target_dir, self.target_list[index]))
+        img_name = self.data_list[index][:-4]      # get image name without the .npy extension
 
         # Normalize both input images and ground truth images to range (0, 1) using the max and min of the entire dataset
         image = (image - (-0.0079)) / (0.9004 - (-0.0079))         # (max, min) of inputs is (0.9004, -0.0079)
@@ -43,7 +44,7 @@ class Mirflickr(Dataset):
         if self.target_transform:
             target = self.target_transform(target)
 
-        return image, target
+        return image, target, img_name
     
 
 def get_loader(dataset, min_side_len, batch_size, num_workers, root_dir="/home/ponoma/workspace/DATA/mirflickr_dataset/"):

@@ -140,13 +140,12 @@ class Multi_Headed_Attention(nn.Module):
 
 
 # separate image into patches and do positional embedding + patch embedding for ViT
-# Followed: 
 class Patch_Embedding(nn.Module):
     def __init__(self, img_side_len, patch_size, n_channels, embed_dim, dropout_rate=0.1):
         super().__init__()
         self.patch_size = patch_size
         self.embed_dim = embed_dim          # same as embedding dimension 
-        self.num_patches = (img_side_len // patch_size) ** 2 
+        self.num_patches = (img_side_len // patch_size) ** 2        # TODO: assumes the image is square
         
         # Note: positional embedding in ViT does not use sine/cosine
         self.conv = torch.nn.Conv2d(n_channels, embed_dim, kernel_size=patch_size, stride=patch_size)         # no overlapping means stride needs to be same as patch size
