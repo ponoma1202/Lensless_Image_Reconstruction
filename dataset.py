@@ -48,25 +48,12 @@ class Mirflickr(Dataset):
     
 
 def get_loader(dataset, min_side_len, batch_size, num_workers, root_dir="/home/ponoma/workspace/DATA/mirflickr_dataset/"):
-    if dataset=="CIFAR10":
-        train_transform = torchvision.transforms.Compose([transforms.RandomCrop(min_side_len, padding=4), 
-                                            transforms.RandomHorizontalFlip(),
-                                            transforms.RandAugment(),  # RandAugment augmentation for strong regularization
-                                            transforms.ToTensor(), 
-                                            transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2470, 0.2435, 0.2616])])          # positional embedding cannot take negative values (center around mean not around 0)                    
+    if dataset=="Mirflickr":
+        train_transform = torchvision.transforms.Compose([transforms.ToTensor(), ])
+                                                          #transforms.CenterCrop((min_side_len, min_side_len))])                       
 
-        val_transform = torchvision.transforms.Compose([transforms.ToTensor(),
-                                                        transforms.Normalize([0.4914, 0.4822, 0.4465], [0.2470, 0.2435, 0.2616]),])
-        trainset = torchvision.datasets.CIFAR10(root='./data', train=True, download=False, transform=train_transform)
-        valset = torchvision.datasets.CIFAR10(root='./data', train=False, download=False, transform=val_transform)
-        testset = None
-
-    elif dataset=="Mirflickr":
-        train_transform = torchvision.transforms.Compose([transforms.ToTensor(), 
-                                                          transforms.CenterCrop((min_side_len, min_side_len))])                       
-
-        val_transform = torchvision.transforms.Compose([transforms.ToTensor(), 
-                                                          transforms.CenterCrop((min_side_len, min_side_len))])  
+        val_transform = torchvision.transforms.Compose([transforms.ToTensor(), ])
+                                                          #transforms.CenterCrop((min_side_len, min_side_len))])  
 
         dataset = Mirflickr(root_dir)           # Make it take in a list of 
         generator = torch.Generator().manual_seed(3)        # generator should yield deterministic behavior
