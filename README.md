@@ -1,4 +1,4 @@
-# Basic_Transformer
+# Lensless Image Reconstruction Model
 
 This repo builds off of the work of "Image Reconstruction for Transformer" by Xiuxi Pan et al. The authors create their own Transformer architecture with multiple AxialAttention + convolution encoder blocks. They also use OverlapPatchEmbedding to embed the image.
 
