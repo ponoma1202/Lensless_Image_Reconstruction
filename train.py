@@ -5,8 +5,8 @@ import wandb
 
 from classification_model import Transformer
 from convnext import ConvRecon
-from recon_transformer import Recon_Transformer
 from dataset import get_loader
+from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID" 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2'
@@ -30,7 +30,7 @@ def main():
     min_side_len = 270
     dropout_rate = 0.1
     num_workers = 4
-    save_path = './checkpoint_experiment/'
+    save_path = './checkpoint_experiment_with_metrics/'
     if not debug:
         run = wandb.init(project='basic_transformer', config={"learning_rate":learning_rate,
                                                         "architecture": Transformer,
@@ -66,81 +66,98 @@ def main():
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-3)         
     criterion = torch.nn.MSELoss()          # for reconstruction
+    data_range = 1 - 4.1243e-05             # (max - min) for target image
+    psnr = PeakSignalNoiseRatio(data_range=data_range).to(device)  
+    ssim = StructuralSimilarityIndexMeasure(data_range=data_range).to(device)
 
     if not os.path.exists(save_path):          
         os.mkdir(save_path)
 
-    train(model, train_loader, val_loader, optimizer, criterion, num_epochs, device, save_path, debug, warmup_epochs)
+    train(model, train_loader, val_loader, optimizer, criterion, num_epochs, device, save_path, debug, warmup_epochs, psnr, ssim)
     if not debug:
         run.finish()
 
 
 # Includes both training and validation
-def train(model, train_loader, val_loader, optimizer, criterion, num_epochs, device, save_path, debug, warmup_epochs):
+def train(model, train_loader, val_loader, optimizer, criterion, num_epochs, device, save_path, debug, warmup_epochs, psnr, ssim):
     linear_warmup = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1/warmup_epochs, end_factor=1.0, total_iters=warmup_epochs-1, last_epoch=-1)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=num_epochs-warmup_epochs, eta_min=1e-5)
 
     best_loss = float('inf')
     for epoch in range(num_epochs):
         print(f'Start training epoch {epoch+1}/{num_epochs}...')
-        train_accuracy, train_loss = train_epoch(model, epoch, num_epochs, train_loader, optimizer, criterion, device) 
-        val_acc, val_loss = validate(model, val_loader, criterion, device, save_path, debug)
+        train_psnr, train_mse_loss, train_ssim = train_epoch(model, epoch, num_epochs, train_loader, optimizer, criterion, device, psnr, ssim) 
+        val_psnr, val_mse_loss, val_ssim = validate(model, val_loader, criterion, device, save_path, psnr, ssim)
         if not debug:
-            wandb.log({"training_loss":train_loss, "validation_loss":val_loss, "epoch":epoch, "learning rate":optimizer.param_groups[-1]['lr']})
+            wandb.log({"training_mse_loss":train_mse_loss, 
+                       "training_psnr": train_psnr,
+                       "train_ssim": train_ssim,
+                       "validation_loss": val_mse_loss,
+                       "val_psnr": val_psnr, 
+                       "val_ssim": val_ssim,
+                       "epoch":epoch, 
+                       "learning rate":optimizer.param_groups[-1]['lr']})
         if epoch < warmup_epochs:
             linear_warmup.step()
         else:
             scheduler.step()
 
         # save best model
-        if val_loss < best_loss:
+        if val_mse_loss < best_loss:
             torch.save(model.state_dict(), os.path.join(save_path, 'best_model.pth'))
         torch.save(model.state_dict(), os.path.join(save_path, 'model.pth'))
         
 
-def train_epoch(model, epoch, num_epochs, train_loader, optimizer, criterion, device):
+def train_epoch(model, epoch, num_epochs, train_loader, optimizer, criterion, device, psnr, ssim):
     model.train()
-    total_correct = 0
-    total_loss = 0
+    total_mse = 0
 
     for step, batch in enumerate(tqdm(train_loader)):
         input, target, _ = batch
         input, target = input.to(device), target.to(device)   
         output = model(input)                                             
         optimizer.zero_grad()
-        loss = criterion(output.squeeze(), target)                                      
+        loss = criterion(output, target)   
+        psnr.update(input, target)        
+        ssim.update(input, target)                                
         loss.backward()
         optimizer.step()        
-        total_loss += loss.item()
-        total_correct += (output == target).sum().item()                                  # summing over a list results in a list so need to use .item() to get a number.
+        total_mse += loss.item()                                
+        
+    avg_mse = total_mse/ len(train_loader.dataset)
+    avg_psnr = psnr.compute()
+    avg_ssim = ssim.compute() #total_ssim / len(val_loader.dataset) 
+    psnr.reset()            # for next epoch
+    ssim.reset()  
+    print(f'Epoch {epoch+1}/{num_epochs}, Train MSE Loss: {avg_mse}, Train PSNR {avg_psnr}, Train SSIM {avg_ssim}')
+    return avg_psnr, avg_mse, avg_ssim          
 
-    accuracy = total_correct / len(train_loader.dataset)
-    avg_loss = total_loss/ len(train_loader.dataset)
-    print(f'Epoch {epoch+1}/{num_epochs}, Loss: {avg_loss}, Accuracy: {accuracy}')
-    return accuracy, avg_loss          
 
-
-def validate(model, val_loader, criterion, device, save_path, debug, load=False):
+def validate(model, val_loader, criterion, device, save_path, psnr, ssim, load=False):
     if load:
         model.load_state_dict(torch.load(save_path))                         # if loading from saved model
     
     model.eval()
     print("Starting validation...")
     with torch.no_grad():
-        total_correct = 0
         total_loss = 0.0
 
         for step, batch in enumerate(tqdm(val_loader)):
             input, target, _ = batch
             input, target = input.to(device), target.to(device)
             output = model(input)
-            loss = criterion(output.squeeze(), target)                                 
+            loss = criterion(output, target)   
+            psnr.update(input, target)
+            ssim.update(input, target)                               
             total_loss += loss
-            total_correct += (output == target).sum().item()         
-        accuracy = total_correct/len(val_loader.dataset)
-        avg_loss = total_loss/len(val_loader.dataset)
-        print(f'Validation Loss: {avg_loss}, Validation Accuracy: {accuracy} \n')
-        return accuracy, avg_loss
+
+        avg_mse = total_loss/len(val_loader.dataset)
+        avg_psnr = psnr.compute()
+        avg_ssim = ssim.compute()  
+        psnr.reset()            # for next epoch
+        ssim.reset()
+        print(f'Val MSE Loss: {avg_mse}, Val PSNR: {avg_psnr}, Val SSIM: {avg_ssim} \n')
+        return avg_psnr, avg_mse, avg_ssim
     
 
 if __name__ == "__main__":

@@ -175,6 +175,8 @@ class LayerNorm(nn.Module):
             return x
 
 # from Lensless Imaging Transformer
+# https://github.com/BobPXX/Lensless_Imaging_Transformer/tree/main 
+
 class FNN(nn.Module):
     def __init__(self, sum_encoder_embed_dims=1440,rec_channels=3):     # convnext: 96 + 192 + 384 + 768 = 1440
         super(FNN, self).__init__()
