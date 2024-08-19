@@ -10,10 +10,10 @@ from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMe
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID" 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2'
-gpu_number = 0
+gpu_number = 2
 
 def main():
-    debug = True
+    debug = False
 
     dataset = "Mirflickr"          
     batch_size = 8 
@@ -30,7 +30,7 @@ def main():
     min_side_len = 270
     dropout_rate = 0.1
     num_workers = 4
-    save_path = './checkpoint_experiment_with_metrics/'
+    save_path = './checkpoint_with_metrics/'
     if not debug:
         run = wandb.init(project='basic_transformer', config={"learning_rate":learning_rate,
                                                         "architecture": Transformer,
@@ -105,7 +105,8 @@ def train(model, train_loader, val_loader, optimizer, criterion, num_epochs, dev
         # save best model
         if val_mse_loss < best_loss:
             torch.save(model.state_dict(), os.path.join(save_path, 'best_model.pth'))
-        torch.save(model.state_dict(), os.path.join(save_path, 'model.pth'))
+            print("New best model at epoch", epoch)
+        torch.save(model.state_dict(), os.path.join(save_path, f'model_{epoch+1}.pth'))
         
 
 def train_epoch(model, epoch, num_epochs, train_loader, optimizer, criterion, device, psnr, ssim):
@@ -117,16 +118,17 @@ def train_epoch(model, epoch, num_epochs, train_loader, optimizer, criterion, de
         input, target = input.to(device), target.to(device)   
         output = model(input)                                             
         optimizer.zero_grad()
-        loss = criterion(output, target)   
-        psnr.update(input, target)        
-        ssim.update(input, target)                                
+        loss = criterion(output, target)                                   
         loss.backward()
         optimizer.step()        
-        total_mse += loss.item()                                
+        total_mse += loss.item() 
+        with torch.no_grad():                                   # do not want to accumulate gradients for evaluation metrics
+            psnr.update(input, target)        
+            ssim.update(input, target)                               
         
     avg_mse = total_mse/ len(train_loader.dataset)
     avg_psnr = psnr.compute()
-    avg_ssim = ssim.compute() #total_ssim / len(val_loader.dataset) 
+    avg_ssim = ssim.compute() 
     psnr.reset()            # for next epoch
     ssim.reset()  
     print(f'Epoch {epoch+1}/{num_epochs}, Train MSE Loss: {avg_mse}, Train PSNR {avg_psnr}, Train SSIM {avg_ssim}')

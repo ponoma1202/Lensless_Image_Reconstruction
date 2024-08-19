@@ -24,8 +24,8 @@ def main():
     # dropout_rate = 0.1
     min_side_len = 270
     num_workers = 4
-    save_path = '/home/ponoma/workspace/Basic_Transformer/checkpoint_experiment/'
-    infer_results = './infer_results_after_35_epochs/'      # NOTE: if in workspace, "." will not be in Basic_Transformer
+    save_path = '/home/ponoma/workspace/Basic_Transformer/checkpoint_no_psnr_ssim/model_25.pth'
+    infer_results = '/home/ponoma/workspace/Basic_Transformer/infer_results_after_25_epochs/'     
 
     if not os.path.exists(infer_results):
         os.makedirs(infer_results)
@@ -36,11 +36,11 @@ def main():
     if torch.cuda.is_available():
         device = torch.device("cuda")
         torch.cuda.set_device(gpu_number)
-        model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth')))
+        model.load_state_dict(torch.load(save_path)) 
         model = model.to(device) 
     else:
         device = torch.device("cpu")
-        model.load_state_dict(torch.load(os.path.join(save_path, 'model.pth'), map_location=torch.device('cpu')))
+        model.load_state_dict(torch.load(save_path, map_location=torch.device('cpu')))
     
     _, _, test_loader = get_loader(dataset, min_side_len, batch_size=1, num_workers=num_workers)
 
