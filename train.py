@@ -13,7 +13,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2'
 gpu_number = 2
 
 def main():
-    debug = True
+    debug = False
 
     dataset = "Mirflickr"          
     batch_size = 8 

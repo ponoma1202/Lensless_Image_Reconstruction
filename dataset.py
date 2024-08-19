@@ -77,8 +77,7 @@ def get_loader(dataset, min_side_len, batch_size, num_workers, root_dir="/home/p
     else:
         raise("Unkown dataset.")
     
-    # TODO: change random shuffle!!!!
-    train_loader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+    train_loader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
     val_loader = torch.utils.data.DataLoader(valset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
     test_loader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
