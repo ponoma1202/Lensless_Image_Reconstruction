@@ -219,13 +219,13 @@ class FNN(nn.Module):
         return x
 
 class Decoder(nn.Module):
-    def __init__(self, sum_encoder_embed_dims=1440,rec_channels=3, original_height=270, original_width=480):
+    def __init__(self, sum_encoder_embed_dims=1440,rec_channels=3, original_height=210, original_width=380):
         super(Decoder, self).__init__()
 
         self.original_height = original_height
         self.original_width = original_width
-
         self.FNN1007=FNN(sum_encoder_embed_dims=sum_encoder_embed_dims,rec_channels=rec_channels)
+
     def forward(self, x):
         s1, s2, s3, s4 = x
 

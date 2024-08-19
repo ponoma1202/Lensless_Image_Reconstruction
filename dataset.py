@@ -34,25 +34,35 @@ class Mirflickr(Dataset):
         target = np.load(os.path.join(self.target_dir, self.target_list[index]))
         img_name = self.data_list[index][:-4]      # get image name without the .npy extension
 
-        # Normalize both input images and ground truth images to range (0, 1) using the max and min of the entire dataset
-        image = (image - (-0.0079)) / (0.9004 - (-0.0079))         # (max, min) of inputs is (0.9004, -0.0079)
-        target = (target - 4.1243e-05 / (1 - 4.1243e-05))          # (max, min) of targets is (1, 4.1243e-05)
+        # Normalize both input images and ground truth images to range [0, 1] using the max and min of the entire dataset
 
-        # totensor changes channel order from (H, W, C) to (C, H, W)
+        image = np.clip(image/0.9, 0,1)                     # max of measurements is 0.9. Normalizing to range [0, 1]                                 
+        target = np.clip(target, 0,1 )      # already normalized to [0, 1]
+
+        # image = (image - (-0.0079)) / (0.9004 - (-0.0079))         # (max, min) of inputs is (0.9004, -0.0079)
+        # target = (target - 4.1243e-05) / (1 - 4.1243e-05)          # (max, min) of targets is (1, 4.1243e-05)
+
+        # totensor changes channel order goes from (H, W, C) to (C, H, W)
         if self.in_transform:
             image = self.in_transform(image)
         if self.target_transform:
             target = self.target_transform(target)
+
+        # cropping away black borders
+        image = image[:,60:,62:-38]
+        target = target[:,60:,62:-38]
 
         return image, target, img_name
     
 
 def get_loader(dataset, min_side_len, batch_size, num_workers, root_dir="/home/ponoma/workspace/DATA/mirflickr_dataset/"):
     if dataset=="Mirflickr":
-        train_transform = torchvision.transforms.Compose([transforms.ToTensor(), ])
+        train_transform = torchvision.transforms.Compose([transforms.ToTensor(), #])
+                                                          transforms.RandomVerticalFlip(1.0)])        # all measurements and ground truth are up side down
                                                           #transforms.CenterCrop((min_side_len, min_side_len))])                       
 
-        val_transform = torchvision.transforms.Compose([transforms.ToTensor(), ])
+        val_transform = torchvision.transforms.Compose([transforms.ToTensor(), #])
+                                                        transforms.RandomVerticalFlip(1.0)])
                                                           #transforms.CenterCrop((min_side_len, min_side_len))])  
 
         dataset = Mirflickr(root_dir)           # Make it take in a list of 
@@ -67,7 +77,8 @@ def get_loader(dataset, min_side_len, batch_size, num_workers, root_dir="/home/p
     else:
         raise("Unkown dataset.")
     
-    train_loader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    # TODO: change random shuffle!!!!
+    train_loader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
     val_loader = torch.utils.data.DataLoader(valset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
     test_loader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
