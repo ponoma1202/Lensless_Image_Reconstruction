@@ -3,7 +3,6 @@ from tqdm import tqdm
 import os
 import wandb
 
-from classification_model import Transformer
 from convnext import ConvRecon
 from dataset import get_loader
 from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
@@ -19,36 +18,35 @@ def main():
     batch_size = 8 
     num_epochs = 200
     learning_rate = 5e-4
-    num_classes = 10
-    num_heads = 4
-    num_blocks = 6
-    embed_dim = 128            # dimension of embedding/hidden layer in Transformer
-    patch_size = 15     # 270 / 15 = 18
+    # num_classes = 10
+    # num_heads = 4
+    # num_blocks = 6
+    # embed_dim = 128            # dimension of embedding/hidden layer in Transformer
+    # patch_size = 15     # 270 / 15 = 18
     n_channels = 3
     warmup_epochs = 10
-    ffn_multiplier = 2
-    min_side_len = 270
-    dropout_rate = 0.1
+    # ffn_multiplier = 2
+    # dropout_rate = 0.1
     num_workers = 4
     save_path = './checkpoint_with_metrics/'
     if not debug:
         run = wandb.init(project='basic_transformer', config={"learning_rate":learning_rate,
-                                                        "architecture": Transformer,
+                                                        "architecture": ConvRecon,
                                                         "dataset": dataset,
                                                         "epochs":num_epochs,
                                                         "batch_size":batch_size,
-                                                        "classes":num_classes,
-                                                        "num_heads":num_heads,
-                                                        "num_encoder_layers": num_blocks,
-                                                        "embed_dim":embed_dim,
-                                                        "patch_size": patch_size,
+                                                        # "classes":num_classes,
+                                                        # "num_heads":num_heads,
+                                                        # "num_encoder_layers": num_blocks,
+                                                        # "embed_dim":embed_dim,
+                                                        # "patch_size": patch_size,
                                                         "n_channels": n_channels,
-                                                        "warmup_epochs":warmup_epochs,
-                                                        "ffn_multiplier": ffn_multiplier, 
-                                                        "dropout_rate": dropout_rate})     
+                                                        "warmup_epochs":warmup_epochs, })
+                                                        # "ffn_multiplier": ffn_multiplier, 
+                                                        # "dropout_rate": dropout_rate})     
 
     # Get data loaders
-    train_loader, val_loader, _ = get_loader(dataset, min_side_len, batch_size, num_workers)
+    train_loader, val_loader, _ = get_loader(dataset, batch_size, num_workers)
 
     # See if gpu is available
     if torch.cuda.is_available():
@@ -58,43 +56,45 @@ def main():
         device = torch.device("cpu")
     
     # Initialize model and move to GPU if available
-    #model = Recon_Transformer(min_side_len, patch_size, n_channels, num_heads, num_blocks, embed_dim, ffn_multiplier, dropout_rate)
     model =  ConvRecon()    
-    # total_params = sum(p.numel() for p in model.parameters())
-    # trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     model.to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-3)         
     criterion = torch.nn.MSELoss()          # for reconstruction
-    data_range = 1 - 4.1243e-05             # (max - min) for target image
-    psnr = PeakSignalNoiseRatio(data_range=data_range).to(device)  
-    ssim = StructuralSimilarityIndexMeasure(data_range=data_range).to(device)
+
+    # Training metrics
+    train_psnr = PeakSignalNoiseRatio(data_range=1.0).to(device)  
+    train_ssim = StructuralSimilarityIndexMeasure(data_range=1.0).to(device)
+
+    # Validation metrics
+    val_psnr = PeakSignalNoiseRatio(data_range=1.0).to(device)
+    val_ssim = StructuralSimilarityIndexMeasure(data_range=1.0).to(device)
 
     if not os.path.exists(save_path):          
         os.mkdir(save_path)
 
-    train(model, train_loader, val_loader, optimizer, criterion, num_epochs, device, save_path, debug, warmup_epochs, psnr, ssim)
+    train(model, train_loader, val_loader, optimizer, criterion, num_epochs, device, save_path, debug, warmup_epochs, train_psnr, train_ssim, val_psnr, val_ssim)
     if not debug:
         run.finish()
 
 
 # Includes both training and validation
-def train(model, train_loader, val_loader, optimizer, criterion, num_epochs, device, save_path, debug, warmup_epochs, psnr, ssim):
+def train(model, train_loader, val_loader, optimizer, criterion, num_epochs, device, save_path, debug, warmup_epochs, train_psnr, train_ssim, val_psnr, val_ssim):
     linear_warmup = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1/warmup_epochs, end_factor=1.0, total_iters=warmup_epochs-1, last_epoch=-1)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=num_epochs-warmup_epochs, eta_min=1e-5)
 
     best_loss = float('inf')
     for epoch in range(num_epochs):
         print(f'Start training epoch {epoch+1}/{num_epochs}...')
-        train_psnr, train_mse_loss, train_ssim = train_epoch(model, epoch, num_epochs, train_loader, optimizer, criterion, device, psnr, ssim) 
-        val_psnr, val_mse_loss, val_ssim = validate(model, val_loader, criterion, device, save_path, psnr, ssim)
+        train_psnr_out, train_mse_loss, train_ssim_out = train_epoch(model, epoch, num_epochs, train_loader, optimizer, criterion, device, train_psnr, train_ssim) 
+        val_psnr_out, val_mse_loss, val_ssim_out = validate(model, val_loader, criterion, device, save_path, val_psnr, val_ssim)
         if not debug:
             wandb.log({"training_mse_loss":train_mse_loss, 
-                       "training_psnr": train_psnr,
-                       "train_ssim": train_ssim,
+                       "training_psnr": train_psnr_out,
+                       "train_ssim": train_ssim_out,
                        "validation_loss": val_mse_loss,
-                       "val_psnr": val_psnr, 
-                       "val_ssim": val_ssim,
+                       "val_psnr": val_psnr_out, 
+                       "val_ssim": val_ssim_out,
                        "epoch":epoch, 
                        "learning rate":optimizer.param_groups[-1]['lr']})
         if epoch < warmup_epochs:
@@ -118,7 +118,7 @@ def train_epoch(model, epoch, num_epochs, train_loader, optimizer, criterion, de
         input, target = input.to(device), target.to(device)   
         output = model(input)                                             
         optimizer.zero_grad()
-        loss = criterion(output, target)                                   
+        loss = criterion(output.squeeze(), target)                                   
         loss.backward()
         optimizer.step()        
         total_mse += loss.item() 
@@ -137,7 +137,7 @@ def train_epoch(model, epoch, num_epochs, train_loader, optimizer, criterion, de
 
 def validate(model, val_loader, criterion, device, save_path, psnr, ssim, load=False):
     if load:
-        model.load_state_dict(torch.load(save_path))                         # if loading from saved model
+        model.load_state_dict(torch.load(save_path))                  
     
     model.eval()
     print("Starting validation...")
@@ -148,7 +148,7 @@ def validate(model, val_loader, criterion, device, save_path, psnr, ssim, load=F
             input, target, _ = batch
             input, target = input.to(device), target.to(device)
             output = model(input)
-            loss = criterion(output, target)   
+            loss = criterion(output.squeeze(), target)   
             psnr.update(input, target)
             ssim.update(input, target)                               
             total_loss += loss

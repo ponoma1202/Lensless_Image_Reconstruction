@@ -24,13 +24,12 @@ def main():
     # dropout_rate = 0.1
     min_side_len = 270
     num_workers = 4
-    save_path = '/home/ponoma/workspace/Basic_Transformer/checkpoint_no_psnr_ssim/model_25.pth'
-    infer_results = '/home/ponoma/workspace/Basic_Transformer/infer_results_after_25_epochs/'     
+    save_path = '/home/ponoma/workspace/Basic_Transformer/checkpoint_with_metrics/model_11.pth'
+    infer_results = '/home/ponoma/workspace/Basic_Transformer/infer_results_after_11_epochs/'     
 
     if not os.path.exists(infer_results):
         os.makedirs(infer_results)
 
-    #model = Recon_Transformer(min_side_len, patch_size, n_channels, num_heads, num_blocks, embed_dim, ffn_multiplier, dropout_rate)
     model = ConvRecon()
 
     if torch.cuda.is_available():
@@ -51,7 +50,7 @@ def main():
             input, target = input.to(device), target.to(device)
             output = model(input)
             output = transforms.ToPILImage()(output.squeeze())
-            output.save(os.path.join(infer_results, img_name[0] + '.jpg'), format='JPEG')       # Test if this works
+            output.save(os.path.join(infer_results, img_name[0] + '.jpg'), format='JPEG')      
 
 if __name__ == "__main__":
     main()

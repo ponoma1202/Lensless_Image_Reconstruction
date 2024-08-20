@@ -35,12 +35,8 @@ class Mirflickr(Dataset):
         img_name = self.data_list[index][:-4]      # get image name without the .npy extension
 
         # Normalize both input images and ground truth images to range [0, 1] using the max and min of the entire dataset
-
-        image = np.clip(image/0.9, 0,1)                     # max of measurements is 0.9. Normalizing to range [0, 1]                                 
-        target = np.clip(target, 0,1 )      # already normalized to [0, 1]
-
-        # image = (image - (-0.0079)) / (0.9004 - (-0.0079))         # (max, min) of inputs is (0.9004, -0.0079)
-        # target = (target - 4.1243e-05) / (1 - 4.1243e-05)          # (max, min) of targets is (1, 4.1243e-05)
+        image = np.clip(image/0.9, 0,1)     # max of measurements is 0.9. Normalizing to range [0, 1]                                 
+        target = np.clip(target, 0,1 )     
 
         # totensor changes channel order goes from (H, W, C) to (C, H, W)
         if self.in_transform:
@@ -55,18 +51,16 @@ class Mirflickr(Dataset):
         return image, target, img_name
     
 
-def get_loader(dataset, min_side_len, batch_size, num_workers, root_dir="/home/ponoma/workspace/DATA/mirflickr_dataset/"):
+def get_loader(dataset, batch_size, num_workers, root_dir="/home/ponoma/workspace/DATA/mirflickr_dataset/"):
     if dataset=="Mirflickr":
         train_transform = torchvision.transforms.Compose([transforms.ToTensor(), #])
-                                                          transforms.RandomVerticalFlip(1.0)])        # all measurements and ground truth are up side down
-                                                          #transforms.CenterCrop((min_side_len, min_side_len))])                       
+                                                          transforms.RandomVerticalFlip(1.0)])        # all measurements and ground truth are up side down                      
 
         val_transform = torchvision.transforms.Compose([transforms.ToTensor(), #])
-                                                        transforms.RandomVerticalFlip(1.0)])
-                                                          #transforms.CenterCrop((min_side_len, min_side_len))])  
+                                                        transforms.RandomVerticalFlip(1.0)]) 
 
-        dataset = Mirflickr(root_dir)           # Make it take in a list of 
-        generator = torch.Generator().manual_seed(3)        # generator should yield deterministic behavior
+        dataset = Mirflickr(root_dir)           
+        generator = torch.Generator().manual_seed(3)        # generator yields deterministic behavior for consistent train/test data split
         trainset, valset, testset = torch.utils.data.random_split(dataset, [0.7, 0.15, 0.15], generator)
 
         # Apply transforms after doing random split
