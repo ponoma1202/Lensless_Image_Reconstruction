@@ -13,24 +13,29 @@ os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2'
 gpu_number = 1
 
 def main():
+    convnext = True
 
     dataset = "Mirflickr"
-    # num_heads = 4
-    # num_blocks = 6
-    # embed_dim = 128            # dimension of embedding/hidden layer in Transformer
-    # patch_size = 15     # 270 / 15 = 18
-    # n_channels = 3
-    # ffn_multiplier = 2
-    # dropout_rate = 0.1
-    min_side_len = 270
+    num_heads = 4
+    num_blocks = 6
+    embed_dim = 128            # dimension of embedding/hidden layer in Transformer
+    patch_size = (15, 19)    
+    n_channels = 3
+    ffn_multiplier = 2
+    dropout_rate = 0.1
     num_workers = 4
-    save_path = '/home/ponoma/workspace/Basic_Transformer/checkpoint_with_metrics/model_11.pth'
-    infer_results = '/home/ponoma/workspace/Basic_Transformer/infer_results_after_11_epochs/'     
+    height = 210
+    width = 380                                             
+    save_path = '/home/ponoma/workspace/Basic_Transformer/checkpoint_with_metrics/model_199.pth'
+    infer_results = '/home/ponoma/workspace/Basic_Transformer/infer_results_after_199_epochs/'     
 
     if not os.path.exists(infer_results):
         os.makedirs(infer_results)
 
-    model = ConvRecon()
+    if convnext:
+        model =  ConvRecon() 
+    else:
+        model = Recon_Transformer(height, width, patch_size, n_channels, num_heads, num_blocks, embed_dim, ffn_multiplier, dropout_rate)
 
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -41,7 +46,7 @@ def main():
         device = torch.device("cpu")
         model.load_state_dict(torch.load(save_path, map_location=torch.device('cpu')))
     
-    _, _, test_loader = get_loader(dataset, min_side_len, batch_size=1, num_workers=num_workers)
+    _, _, test_loader = get_loader(dataset, batch_size=1, num_workers=num_workers)
 
     with torch.no_grad():
         model.eval()

@@ -14,7 +14,8 @@ gpu_number = 2
 
 def main():
     debug = False
-    convnext = True
+    convnext = False
+    save_every_epoch = False
 
     dataset = "Mirflickr"          
     batch_size = 8 
@@ -79,13 +80,13 @@ def main():
     if not os.path.exists(save_path):          
         os.mkdir(save_path)
 
-    train(model, train_loader, val_loader, optimizer, criterion, num_epochs, device, save_path, debug, warmup_epochs, train_psnr, train_ssim, val_psnr, val_ssim)
+    train(model, train_loader, val_loader, optimizer, criterion, num_epochs, device, save_path, debug, warmup_epochs, train_psnr, train_ssim, val_psnr, val_ssim, save_every_epoch)
     if not debug:
         run.finish()
 
 
 # Includes both training and validation
-def train(model, train_loader, val_loader, optimizer, criterion, num_epochs, device, save_path, debug, warmup_epochs, train_psnr, train_ssim, val_psnr, val_ssim):
+def train(model, train_loader, val_loader, optimizer, criterion, num_epochs, device, save_path, debug, warmup_epochs, train_psnr, train_ssim, val_psnr, val_ssim, save_every_epoch):
     linear_warmup = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1/warmup_epochs, end_factor=1.0, total_iters=warmup_epochs-1, last_epoch=-1)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=num_epochs-warmup_epochs, eta_min=1e-5)
 
@@ -111,8 +112,11 @@ def train(model, train_loader, val_loader, optimizer, criterion, num_epochs, dev
         # save best model
         if val_mse_loss < best_loss:
             torch.save(model.state_dict(), os.path.join(save_path, 'best_model.pth'))
-            print("New best model at epoch", epoch)
-        torch.save(model.state_dict(), os.path.join(save_path, f'model_{epoch+1}.pth'))
+            print("New best model at epoch", epoch, "\n")
+        if save_every_epoch:
+            torch.save(model.state_dict(), os.path.join(save_path, f'model_{epoch+1}.pth'))
+        else:
+            torch.save(model.state_dict(), os.path.join(save_path, "model.pth"))
         
 
 def train_epoch(model, epoch, num_epochs, train_loader, optimizer, criterion, device, psnr, ssim): 
@@ -154,10 +158,11 @@ def validate(model, val_loader, criterion, device, save_path, psnr, ssim, load=F
             input, target, _ = batch
             input, target = input.to(device), target.to(device)
             output = model(input)
-            loss = criterion(output.squeeze(), target)   
-            psnr.update(input, target)
-            ssim.update(input, target)                               
+            loss = criterion(output.squeeze(), target)  
             total_loss += loss
+            with torch.no_grad(): 
+                psnr.update(input, target)
+                ssim.update(input, target)                               
 
         avg_mse = total_loss/len(val_loader.dataset)
         avg_psnr = psnr.compute()
