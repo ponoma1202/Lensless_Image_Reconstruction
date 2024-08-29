@@ -54,6 +54,7 @@ class Mirflickr(Dataset):
 def get_loader(dataset, batch_size, num_workers, root_dir="/home/ponoma/workspace/DATA/mirflickr_dataset/"):
     if dataset=="Mirflickr":
         train_transform = torchvision.transforms.Compose([transforms.ToTensor(), #])
+                                                          # TODO: 0 mean the data
                                                           transforms.RandomVerticalFlip(1.0)])        # all measurements and ground truth are up side down                      
 
         val_transform = torchvision.transforms.Compose([transforms.ToTensor(), #])

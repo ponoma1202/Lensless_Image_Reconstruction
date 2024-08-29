@@ -26,8 +26,8 @@ def main():
     num_workers = 4
     height = 210
     width = 380                                             
-    save_path = '/home/ponoma/workspace/Basic_Transformer/checkpoint_with_metrics/model_199.pth'
-    infer_results = '/home/ponoma/workspace/Basic_Transformer/infer_results_after_199_epochs/'     
+    save_path = '/home/ponoma/workspace/Basic_Transformer/checkpoint_with_metrics_val_and_train/model.pth'
+    infer_results = '/home/ponoma/workspace/Basic_Transformer/infer_results_after_12_epochs/'     
 
     if not os.path.exists(infer_results):
         os.makedirs(infer_results)

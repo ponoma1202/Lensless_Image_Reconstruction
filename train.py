@@ -10,16 +10,16 @@ from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMe
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID" 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2'
-gpu_number = 2
+gpu_number = 0
 
 def main():
     debug = False
-    convnext = False
+    convnext = True
     save_every_epoch = False
 
     dataset = "Mirflickr"          
     batch_size = 8 
-    num_epochs = 200
+    num_epochs = 35
     learning_rate = 5e-4
     num_heads = 4
     num_blocks = 6
@@ -32,9 +32,9 @@ def main():
     width = 380
     dropout_rate = 0.1
     num_workers = 4
-    save_path = './checkpoint_transformer/'
+    save_path = './checkpoint_with_metrics_val_and_train/'
     if not debug:
-        run = wandb.init(project='basic_transformer', config={"learning_rate":learning_rate,
+        run = wandb.init(project='convnext', config={"learning_rate":learning_rate,
                                                         "architecture": Recon_Transformer,
                                                         # "dataset": dataset,
                                                         "epochs":num_epochs,
@@ -61,7 +61,7 @@ def main():
     # Initialize model and move to GPU if available
 
     if convnext:
-        model =  ConvRecon() 
+        model = ConvRecon() 
     else:
         model = Recon_Transformer(height, width, patch_size, n_channels, num_heads, num_blocks, embed_dim, ffn_multiplier, dropout_rate)   
     model.to(device)
@@ -89,6 +89,7 @@ def main():
 def train(model, train_loader, val_loader, optimizer, criterion, num_epochs, device, save_path, debug, warmup_epochs, train_psnr, train_ssim, val_psnr, val_ssim, save_every_epoch):
     linear_warmup = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1/warmup_epochs, end_factor=1.0, total_iters=warmup_epochs-1, last_epoch=-1)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=num_epochs-warmup_epochs, eta_min=1e-5)
+    #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer) 
 
     best_loss = float('inf')
     for epoch in range(num_epochs):
@@ -159,10 +160,9 @@ def validate(model, val_loader, criterion, device, save_path, psnr, ssim, load=F
             input, target = input.to(device), target.to(device)
             output = model(input)
             loss = criterion(output.squeeze(), target)  
-            total_loss += loss
-            with torch.no_grad(): 
-                psnr.update(input, target)
-                ssim.update(input, target)                               
+            total_loss += loss 
+            psnr.update(input, target)
+            ssim.update(input, target)                               
 
         avg_mse = total_loss/len(val_loader.dataset)
         avg_psnr = psnr.compute()
