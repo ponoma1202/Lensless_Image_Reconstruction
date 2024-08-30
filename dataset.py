@@ -2,6 +2,7 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 import numpy as np
+import math
 import os
 
 from torch.utils.data import Dataset
@@ -59,15 +60,25 @@ def get_loader(dataset, batch_size, num_workers, root_dir="/home/ponoma/workspac
 
         val_transform = torchvision.transforms.Compose([transforms.ToTensor(), #])
                                                         transforms.RandomVerticalFlip(1.0)]) 
+        
+        test_transform = torchvision.transforms.Compose([transforms.ToTensor(), #])
+                                                        transforms.RandomVerticalFlip(1.0)])
 
-        dataset = Mirflickr(root_dir)           
+        dataset = Mirflickr(root_dir)
+        dataset_size = len(dataset)
+        train_size = int(math.ceil(0.7 * dataset_size))
+        val_size = int(math.ceil(0.15 * dataset_size))
+        test_size = dataset_size - train_size - val_size     # 24,999 is not an even number -> deals with this edge case      
         generator = torch.Generator().manual_seed(3)        # generator yields deterministic behavior for consistent train/test data split
-        trainset, valset, testset = torch.utils.data.random_split(dataset, [0.7, 0.15, 0.15], generator)
+        trainset, valset, testset = torch.utils.data.random_split(dataset, [train_size, val_size, test_size], generator)
 
         # Apply transforms after doing random split
-        trainset = Mirflickr(root_dir, trainset.dataset.data_list, trainset.dataset.target_list, input_transform=train_transform, target_transform=train_transform)
-        valset = Mirflickr(root_dir, valset.dataset.data_list, valset.dataset.target_list, val_transform, val_transform)
-        testset = Mirflickr(root_dir, testset.dataset.data_list, testset.dataset.target_list, val_transform, val_transform)
+        trainset.dataset.input_transform = train_transform
+        trainset.dataset.target_transform = train_transform
+        valset.dataset.input_transform = val_transform
+        valset.dataset.target_transform = val_transform
+        testset.dataset.input_transform = test_transform
+        testset.dataset.target_transform = test_transform
         
     else:
         raise("Unkown dataset.")
