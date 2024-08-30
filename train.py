@@ -134,8 +134,8 @@ def train_epoch(model, epoch, num_epochs, train_loader, optimizer, criterion, de
         optimizer.step()        
         total_mse += loss.item()  
         with torch.no_grad():                                   # do not want to accumulate gradients for evaluation metrics
-            psnr.update(input, target)        
-            ssim.update(input, target)                               
+            psnr.update(output, target)        
+            ssim.update(output, target)                               
         
     avg_mse = total_mse/ len(train_loader.dataset) 
     avg_psnr = psnr.compute()
@@ -161,8 +161,8 @@ def validate(model, val_loader, criterion, device, save_path, psnr, ssim, load=F
             output = model(input)
             loss = criterion(output.squeeze(), target)  
             total_loss += loss 
-            psnr.update(input, target)
-            ssim.update(input, target)                               
+            psnr.update(output, target)
+            ssim.update(output, target)                               
 
         avg_mse = total_loss/len(val_loader.dataset)
         avg_psnr = psnr.compute()
