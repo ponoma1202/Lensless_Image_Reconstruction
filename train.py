@@ -13,7 +13,7 @@ os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2'
 gpu_number = 0
 
 def main():
-    debug = True
+    debug = False
     convnext = True
     save_every_epoch = False
 

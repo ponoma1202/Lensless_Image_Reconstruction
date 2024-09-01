@@ -36,8 +36,8 @@ class Mirflickr(Dataset):
         img_name = self.data_list[index][:-4]      # get image name without the .npy extension
 
         # Normalize both input images and ground truth images to range [0, 1] using the max and min of the entire dataset
-        image = np.clip(image/0.9, 0,1)     # max of measurements is 0.9. Normalizing to range [0, 1]                                 
-        target = np.clip(target, 0,1 )     
+        # image = np.clip(image/0.9, 0,1)     # max of measurements is 0.9. Normalizing to range [0, 1]                                 
+        # target = np.clip(target, 0,1 )     
 
         # totensor changes channel order goes from (H, W, C) to (C, H, W)
         if self.in_transform:
@@ -54,15 +54,29 @@ class Mirflickr(Dataset):
 
 def get_loader(dataset, batch_size, num_workers, root_dir="/home/ponoma/workspace/DATA/mirflickr_dataset/"):
     if dataset=="Mirflickr":
-        train_transform = torchvision.transforms.Compose([transforms.ToTensor(), #])
-                                                          # TODO: 0 mean the data
-                                                          transforms.RandomVerticalFlip(1.0)])        # all measurements and ground truth are up side down                      
+        train_transform_measurement = torchvision.transforms.Compose([transforms.ToTensor(), 
+                                                          transforms.Normalize([0.1593, 0.1690, 0.1902], [0.0659, 0.0689, 0.0741]),
+                                                          transforms.RandomVerticalFlip(1.0)])        # all measurements and ground truth are up side down  
 
-        val_transform = torchvision.transforms.Compose([transforms.ToTensor(), #])
+        train_transform_targets =  torchvision.transforms.Compose([transforms.ToTensor(), 
+                                                          transforms.Normalize([0.3904, 0.4046, 0.4056], [0.2968, 0.3014, 0.2989]),
+                                                          transforms.RandomVerticalFlip(1.0)])                    
+
+        val_transform_measurement = torchvision.transforms.Compose([transforms.ToTensor(), 
+                                                        transforms.Normalize([0.1583, 0.1685, 0.1903], [0.0656, 0.0688, 0.0743]),
                                                         transforms.RandomVerticalFlip(1.0)]) 
         
-        test_transform = torchvision.transforms.Compose([transforms.ToTensor(), #])
+        val_transform_targets = torchvision.transforms.Compose([transforms.ToTensor(), 
+                                                        transforms.Normalize([0.3897, 0.4046, 0.4061], [0.2972, 0.3024, 0.3000]),
+                                                        transforms.RandomVerticalFlip(1.0)]) 
+        
+        test_transform_measurement = torchvision.transforms.Compose([transforms.ToTensor(), 
+                                                        transforms.Normalize([0.1605, 0.1705, 0.1912], [0.0668, 0.0698, 0.0750]),
                                                         transforms.RandomVerticalFlip(1.0)])
+        
+        test_transform_targets = torchvision.transforms.Compose([transforms.ToTensor(), 
+                                                        transforms.Normalize([0.3931, 0.4077, 0.4074], [0.2951, 0.2998, 0.2973]),
+                                                        transforms.RandomVerticalFlip(1.0)]) 
 
         dataset = Mirflickr(root_dir)
         dataset_size = len(dataset)
@@ -73,12 +87,12 @@ def get_loader(dataset, batch_size, num_workers, root_dir="/home/ponoma/workspac
         trainset, valset, testset = torch.utils.data.random_split(dataset, [train_size, val_size, test_size], generator)
 
         # Apply transforms after doing random split
-        trainset.dataset.input_transform = train_transform
-        trainset.dataset.target_transform = train_transform
-        valset.dataset.input_transform = val_transform
-        valset.dataset.target_transform = val_transform
-        testset.dataset.input_transform = test_transform
-        testset.dataset.target_transform = test_transform
+        trainset.dataset.in_transform = train_transform_measurement
+        trainset.dataset.target_transform = train_transform_targets
+        valset.dataset.in_transform = val_transform_measurement
+        valset.dataset.target_transform = val_transform_targets
+        testset.dataset.in_transform = test_transform_measurement
+        testset.dataset.target_transform = test_transform_targets
         
     else:
         raise("Unkown dataset.")
