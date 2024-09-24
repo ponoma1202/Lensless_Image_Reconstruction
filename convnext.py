@@ -219,7 +219,7 @@ class FNN(nn.Module):
         return x
 
 class Decoder(nn.Module):
-    def __init__(self, sum_encoder_embed_dims=1440,rec_channels=3, original_height=210, original_width=380):
+    def __init__(self, sum_encoder_embed_dims=1440, rec_channels=3, original_height=210, original_width=380):
         super(Decoder, self).__init__()
 
         self.original_height = original_height
@@ -239,10 +239,10 @@ class Decoder(nn.Module):
         return s
 
 class ConvRecon(nn.Module):
-    def __init__(self, pretrained=False, in_22k=False, drop_path_rate=0.2, layer_scale_init_value=1.0):
+    def __init__(self, n_channels, pretrained=False, in_22k=False, drop_path_rate=0.2, layer_scale_init_value=1.0):
         super().__init__()
-        self.encoder = convnext_tiny(pretrained, in_22k, drop_path_rate=drop_path_rate, layer_scale_init_value=layer_scale_init_value) # in_22k is boolean for if model is trained on imagenet 22k. If false, pretrained on imagenet 1k
-        self.decoder = Decoder()
+        self.encoder = convnext_tiny(pretrained, in_22k, drop_path_rate=drop_path_rate, layer_scale_init_value=layer_scale_init_value, in_chans=n_channels) # in_22k is boolean for if model is trained on imagenet 22k. If false, pretrained on imagenet 1k
+        self.decoder = Decoder(rec_channels=n_channels)
 
     def forward(self, x):
         x = self.encoder(x)

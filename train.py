@@ -7,19 +7,22 @@ from convnext import ConvRecon
 from recon_transformer import Recon_Transformer
 from dataset import get_loader
 from torchmetrics.image import PeakSignalNoiseRatio, StructuralSimilarityIndexMeasure
+import numpy as np
+from skimage.metrics import structural_similarity as ssim
+from skimage.metrics import peak_signal_noise_ratio as psnr
+
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID" 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0,1,2'
-gpu_number = 0
+gpu_number = 2
 
 def main():
     debug = False
     convnext = True
-    save_every_epoch = False
+    save_every_epoch = True
 
     dataset = "Mirflickr"          
     batch_size = 8 
-    num_epochs = 35
     learning_rate = 5e-4
     num_heads = 4
     num_blocks = 6
@@ -32,7 +35,13 @@ def main():
     width = 380
     dropout_rate = 0.1
     num_workers = 4
-    save_path = './checkpoint_with_metrics_val_and_train/'
+    save_path = './checkpoint_convnext_rgb_fixed/'
+
+    if convnext:
+        num_epochs = 35
+    else:
+        num_epochs = 200
+    
     if not debug:
         run = wandb.init(project='convnext', config={"learning_rate":learning_rate,
                                                         "architecture": Recon_Transformer,
@@ -61,9 +70,9 @@ def main():
     # Initialize model and move to GPU if available
 
     if convnext:
-        model = ConvRecon() 
+        model = ConvRecon(n_channels) 
     else:
-        model = Recon_Transformer(height, width, patch_size, n_channels, num_heads, num_blocks, embed_dim, ffn_multiplier, dropout_rate)   
+        model = Recon_Transformer(height, width, patch_size, n_channels, num_heads, num_blocks, embed_dim, ffn_multiplier, dropout_rate) 
     model.to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=1e-3)         
@@ -88,8 +97,7 @@ def main():
 # Includes both training and validation
 def train(model, train_loader, val_loader, optimizer, criterion, num_epochs, device, save_path, debug, warmup_epochs, train_psnr, train_ssim, val_psnr, val_ssim, save_every_epoch):
     linear_warmup = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1/warmup_epochs, end_factor=1.0, total_iters=warmup_epochs-1, last_epoch=-1)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=num_epochs-warmup_epochs, eta_min=1e-5)
-    #scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer) 
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=num_epochs-warmup_epochs, eta_min=1e-5) 
 
     best_loss = float('inf')
     for epoch in range(num_epochs):
@@ -120,33 +128,46 @@ def train(model, train_loader, val_loader, optimizer, criterion, num_epochs, dev
             torch.save(model.state_dict(), os.path.join(save_path, "model.pth"))
         
 
-def train_epoch(model, epoch, num_epochs, train_loader, optimizer, criterion, device, psnr, ssim): 
+def train_epoch(model, epoch, num_epochs, train_loader, optimizer, criterion, device, train_psnr, train_ssim): 
     model.train()
     total_mse = 0
+    my_psnr = 0.0
+    my_ssim = 0.0
 
     for step, batch in enumerate(tqdm(train_loader)):
         input, target, _ = batch
         input, target = input.to(device), target.to(device)   
         output = model(input)                                             
         optimizer.zero_grad()
-        loss = criterion(output.squeeze(), target)                                   
+        loss = criterion(output.squeeze(), target.squeeze())                                   
         loss.backward()
         optimizer.step()        
-        total_mse += loss.item()  
+        total_mse += loss.item() 
+
+        # output = output.detach().cpu().numpy()  # TODO remove these lines
+        # target = target.detach().cpu().numpy()        
         with torch.no_grad():                                   # do not want to accumulate gradients for evaluation metrics
-            psnr.update(output, target)        
-            ssim.update(output, target)                               
+            # for i in range(input.shape[0]):
+            #     curr_psnr = psnr(target[i], output[i], data_range=1.0) #10 * np.log10((max_pixel_val ** 2) / total_mse)
+            #     curr_ssim = ssim(target[i], output[i], data_range=1.0, channel_axis=0)
+            #     my_ssim += curr_ssim 
+            #     my_psnr += curr_psnr
+            train_psnr.update(output, target)        
+            train_ssim.update(output, target)  
+        total_mse *= input.shape[0]                             # multiply avg batch mse by batch size to get total mse for the batch                    
         
-    avg_mse = total_mse/ len(train_loader.dataset) 
-    avg_psnr = psnr.compute()
-    avg_ssim = ssim.compute() 
-    psnr.reset()            # for next epoch
-    ssim.reset() 
+    avg_mse = total_mse / len(train_loader.dataset) 
+    # avg_ssim = my_ssim / len(train_loader.dataset)
+    #avg_psnr = my_psnr / len(train_loader.dataset)
+    avg_psnr = train_psnr.compute()
+    avg_ssim = train_ssim.compute() 
+    train_psnr.reset()            # for next epoch
+    train_ssim.reset() 
     print(f'Epoch {epoch+1}/{num_epochs}, Train MSE Loss: {avg_mse}, Train PSNR {avg_psnr}, Train SSIM {avg_ssim}')
     return avg_psnr, avg_mse, avg_ssim  
 
 
-def validate(model, val_loader, criterion, device, save_path, psnr, ssim, load=False):
+def validate(model, val_loader, criterion, device, save_path, val_psnr, val_ssim, load=False):
     if load:
         model.load_state_dict(torch.load(save_path))                  
     
@@ -161,14 +182,14 @@ def validate(model, val_loader, criterion, device, save_path, psnr, ssim, load=F
             output = model(input)
             loss = criterion(output.squeeze(), target)  
             total_loss += loss 
-            psnr.update(output, target)
-            ssim.update(output, target)                               
+            val_psnr.update(output, target)
+            val_ssim.update(output, target)                               
 
         avg_mse = total_loss/len(val_loader.dataset)
-        avg_psnr = psnr.compute()
-        avg_ssim = ssim.compute()  
-        psnr.reset()            # for next epoch
-        ssim.reset()
+        avg_psnr = val_psnr.compute()
+        avg_ssim = val_ssim.compute()  
+        val_psnr.reset()            # for next epoch
+        val_ssim.reset()
         print(f'Val MSE Loss: {avg_mse}, Val PSNR: {avg_psnr}, Val SSIM: {avg_ssim} \n')
         return avg_psnr, avg_mse, avg_ssim
     

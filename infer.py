@@ -20,20 +20,20 @@ def main():
     num_blocks = 6
     embed_dim = 128            # dimension of embedding/hidden layer in Transformer
     patch_size = (15, 19)    
-    n_channels = 3
+    n_channels = 3  #TODO change as needed
     ffn_multiplier = 2
     dropout_rate = 0.1
     num_workers = 4
     height = 210
     width = 380                                             
-    save_path = '/home/ponoma/workspace/Basic_Transformer/checkpoint_with_metrics_val_and_train/model.pth'
-    infer_results = '/home/ponoma/workspace/Basic_Transformer/infer_results_after_12_epochs/'     
+    save_path = '/home/ponoma/workspace/Basic_Transformer/checkpoint_10_img/model_13.pth'
+    infer_results = '/home/ponoma/workspace/Basic_Transformer/infer_results_after_13_epochs_2/'     
 
     if not os.path.exists(infer_results):
         os.makedirs(infer_results)
 
     if convnext:
-        model =  ConvRecon() 
+        model =  ConvRecon(n_channels) 
     else:
         model = Recon_Transformer(height, width, patch_size, n_channels, num_heads, num_blocks, embed_dim, ffn_multiplier, dropout_rate)
 
